@@ -1,18 +1,33 @@
-import { formatConsoleEvent, selectMainTarget } from '@icarus/core';
-import type { CdpConsoleEntry, CdpTarget } from '@icarus/core';
+import {
+  formatConsoleEvent,
+  formatNetworkEvent,
+  NETWORK_EVENTS,
+  selectMainTarget,
+} from '@icarus/core';
+import type { CdpConsoleEntry, CdpNetworkEvent, CdpTarget } from '@icarus/core';
 
 /**
  * Orchestrates a live CDP session against a running RN app (E-14): discover a target → start
  * the multiplexing proxy in front of Hermes → connect our client through the proxy → enable
- * Runtime → stream console events out as normalized log entries. If the underlying socket
- * dies after a successful connect, the session auto-reconnects with exponential backoff
- * (slice 4 / C3) — re-discovering because the target URL may have changed across a reload
- * or a Metro restart.
+ * Runtime + Network → stream console + network events out as normalized records. If the
+ * underlying socket dies after a successful connect, the session auto-reconnects with
+ * exponential backoff (slice 4 / C3) — re-discovering because the target URL may have
+ * changed across a reload or a Metro restart.
  *
  * Dependencies are injected so this glue is unit-testable without sockets or an RN app.
  */
 export type CdpSessionStatus =
   'disconnected' | 'connecting' | 'reconnecting' | 'connected' | 'error';
+
+/** Whether the running RN app supports the CDP `Network` domain. */
+export type CdpSessionNetworkSupport = 'available' | 'unavailable';
+
+/** Status event payload — opaque to the session, mapped to IPC by the caller. */
+export interface CdpSessionStatusEvent {
+  readonly status: CdpSessionStatus;
+  readonly detail?: string;
+  readonly networkSupport?: CdpSessionNetworkSupport;
+}
 
 export interface CdpClientLike {
   connect(): Promise<void>;
@@ -39,7 +54,9 @@ export interface CdpSessionDeps {
   /** Create a CDP client pointed at the proxy's downstream URL. */
   createClient(downstreamUrl: string): CdpClientLike;
   onLog(entry: CdpConsoleEntry): void;
-  onStatus(status: CdpSessionStatus, detail?: string): void;
+  /** Stream of normalized network events (E-14 slice 5). */
+  onNetwork(event: CdpNetworkEvent): void;
+  onStatus(event: CdpSessionStatusEvent): void;
   /**
    * Sleep helper for backoff between reconnect attempts. Injected so tests can replace it
    * with a synchronous queue. Default: real setTimeout-based sleep.
@@ -73,6 +90,7 @@ export class CdpSession {
   #proxy: CdpProxyLike | undefined;
   #client: CdpClientLike | undefined;
   #status: CdpSessionStatus = 'disconnected';
+  #networkSupport: CdpSessionNetworkSupport | undefined;
   #userDisconnected = false;
   #reconnectAttempts = 0;
   #reconnecting = false;
@@ -89,10 +107,14 @@ export class CdpSession {
     return this.#status;
   }
 
+  get networkSupport(): CdpSessionNetworkSupport | undefined {
+    return this.#networkSupport;
+  }
+
   /**
-   * Connect to the first attachable RN app and start streaming its console logs. Subsequent
-   * drops of the underlying connection trigger auto-reconnect; an explicit `disconnect()`
-   * is the only way to stop it.
+   * Connect to the first attachable RN app and start streaming its console + network events.
+   * Subsequent drops of the underlying connection trigger auto-reconnect; an explicit
+   * `disconnect()` is the only way to stop it.
    */
   async connect(): Promise<void> {
     if (this.#status === 'connecting' || this.#status === 'connected' || this.#reconnecting) {
@@ -100,6 +122,7 @@ export class CdpSession {
     }
     this.#userDisconnected = false;
     this.#reconnectAttempts = 0;
+    this.#networkSupport = undefined;
     this.#setStatus('connecting');
     try {
       await this.#doConnect();
@@ -116,13 +139,15 @@ export class CdpSession {
     this.#userDisconnected = true;
     await this.#teardown();
     this.#reconnectAttempts = 0;
+    this.#networkSupport = undefined;
     this.#setStatus('disconnected');
   }
 
   /**
    * One full attempt: discover → start proxy → create client → wire events → connect →
-   * send `Runtime.enable`. Throws on any failure with the actionable reason. The caller
-   * decides whether the throw is terminal (initial connect) or recoverable (auto-reconnect).
+   * send `Runtime.enable` + `Network.enable` (best-effort). Throws on any failure with the
+   * actionable reason. The caller decides whether the throw is terminal (initial connect)
+   * or recoverable (auto-reconnect).
    */
   async #doConnect(): Promise<void> {
     const target = selectMainTarget(await this.#deps.discover());
@@ -145,12 +170,28 @@ export class CdpSession {
       const entry = formatConsoleEvent(params);
       if (entry) this.#deps.onLog(entry);
     });
+    // Network events are best-effort — if Network.enable fails (RN < 0.76, etc.) we still
+    // ship a working console stream. Subscribing to the events is cheap; the lack of an
+    // enable means the events just never fire, so this is a no-op in the unsupported case.
+    client.on(NETWORK_EVENTS.REQUEST_WILL_BE_SENT, (params) =>
+      this.#forwardNetwork('Network.requestWillBeSent', params),
+    );
+    client.on(NETWORK_EVENTS.RESPONSE_RECEIVED, (params) =>
+      this.#forwardNetwork('Network.responseReceived', params),
+    );
+    client.on(NETWORK_EVENTS.LOADING_FAILED, (params) =>
+      this.#forwardNetwork('Network.loadingFailed', params),
+    );
 
     // If connect() itself throws, unsubscribe so the close we trigger via teardown
     // doesn't start a reconnect we don't want.
     try {
       await client.connect();
       await client.send('Runtime.enable');
+      // Network.enable is best-effort: success → stream network events, failure → mark
+      // the session's networkSupport as 'unavailable' and keep going. Either way the
+      // session is fully usable for the console stream.
+      await this.#tryEnableNetwork(client);
     } catch (error) {
       offClose();
       // Best-effort cleanup of the half-initialized client/proxy. Done in-line so a
@@ -171,6 +212,27 @@ export class CdpSession {
     this.#proxy = proxy;
     this.#client = client;
     this.#setStatus('connected', target.description ?? target.title ?? 'React Native app');
+  }
+
+  /**
+   * Try to enable the CDP Network domain. The spike proved RN ≥ 0.76 supports it natively;
+   * older RN rejects with a "method not found" / "domain not supported" error. We surface
+   * the result via `networkSupport` so the UI can show "Network: not supported on this
+   * version" rather than just silently not showing events.
+   */
+  async #tryEnableNetwork(client: CdpClientLike): Promise<void> {
+    try {
+      await client.send('Network.enable');
+      this.#setNetworkSupport('available');
+    } catch {
+      this.#setNetworkSupport('unavailable');
+    }
+  }
+
+  #forwardNetwork(method: string, params: unknown): void {
+    if (this.#networkSupport !== 'available') return;
+    const event = formatNetworkEvent(method, params);
+    if (event) this.#deps.onNetwork(event);
   }
 
   /**
@@ -228,6 +290,21 @@ export class CdpSession {
 
   #setStatus(status: CdpSessionStatus, detail?: string): void {
     this.#status = status;
-    this.#deps.onStatus(status, detail);
+    const event: CdpSessionStatusEvent =
+      this.#networkSupport !== undefined
+        ? {
+            status,
+            ...(detail !== undefined ? { detail } : {}),
+            networkSupport: this.#networkSupport,
+          }
+        : { status, ...(detail !== undefined ? { detail } : {}) };
+    this.#deps.onStatus(event);
+  }
+
+  #setNetworkSupport(support: CdpSessionNetworkSupport): void {
+    this.#networkSupport = support;
+    // Re-emit the current status so the renderer sees the support change without
+    // needing a separate channel. A no-op when we're already in this support state.
+    this.#setStatus(this.#status);
   }
 }

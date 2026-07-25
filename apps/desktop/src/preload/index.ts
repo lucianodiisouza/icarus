@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron';
 import { CHANNELS, EVENTS, type AppEchoInput } from '../shared/ipc/contracts.js';
-import type { CdpLogEvent, CdpStatusEvent } from '../shared/ipc/contracts.js';
+import type { CdpLogEvent, CdpNetworkEventOut, CdpStatusEvent } from '../shared/ipc/contracts.js';
 import type { IcarusApi, Unsubscribe } from '../shared/ipc/api.js';
 
 /**
@@ -20,6 +20,8 @@ const api: IcarusApi = {
   cdpConnect: () => ipcRenderer.invoke(CHANNELS.CDP_CONNECT),
   cdpDisconnect: () => ipcRenderer.invoke(CHANNELS.CDP_DISCONNECT),
   onCdpLog: (handler: (entry: CdpLogEvent) => void) => subscribe(EVENTS.CDP_LOG, handler),
+  onCdpNetwork: (handler: (event: CdpNetworkEventOut) => void) =>
+    subscribe(EVENTS.CDP_NETWORK, handler),
   onCdpStatus: (handler: (status: CdpStatusEvent) => void) => subscribe(EVENTS.CDP_STATUS, handler),
 };
 

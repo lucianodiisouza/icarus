@@ -3,6 +3,7 @@ import type {
   AppEchoOutput,
   CdpCommandOutput,
   CdpLogEvent,
+  CdpNetworkEventOut,
   CdpStatusEvent,
   DoctorCheckOutput,
 } from './contracts.js';
@@ -25,6 +26,8 @@ export interface IcarusApi {
   cdpDisconnect(): Promise<CdpCommandOutput>;
   /** Subscribe to live console log entries. Returns an unsubscribe function. */
   onCdpLog(handler: (entry: CdpLogEvent) => void): Unsubscribe;
+  /** Subscribe to live network events (E-14 slice 5). */
+  onCdpNetwork(handler: (event: CdpNetworkEventOut) => void): Unsubscribe;
   /** Subscribe to CDP connection-status changes. Returns an unsubscribe function. */
   onCdpStatus(handler: (status: CdpStatusEvent) => void): Unsubscribe;
 }

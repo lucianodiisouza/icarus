@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { CdpConsoleEntry, DoctorReport } from '@icarus/core';
+import type { CdpConsoleEntry, CdpNetworkEvent, DoctorReport } from '@icarus/core';
 
 /**
  * The IPC contract shared by main, preload, and renderer. This is the single trust
@@ -32,15 +32,21 @@ export type ChannelName = (typeof CHANNELS)[keyof typeof CHANNELS];
 export const EVENTS = {
   CDP_LOG: 'event:cdp.log',
   CDP_STATUS: 'event:cdp.status',
+  CDP_NETWORK: 'event:cdp.network',
 } as const;
 
 export type CdpConnectionStatus =
   'disconnected' | 'connecting' | 'reconnecting' | 'connected' | 'error';
 
+/** Whether the running RN app supports CDP `Network.enable` (RN ≥ 0.76). */
+export type CdpNetworkSupport = 'available' | 'unavailable';
+
 export type CdpLogEvent = CdpConsoleEntry;
+export type CdpNetworkEventOut = CdpNetworkEvent;
 export interface CdpStatusEvent {
   readonly status: CdpConnectionStatus;
   readonly detail?: string;
+  readonly networkSupport?: CdpNetworkSupport;
 }
 
 // --- query:doctor.check ---
