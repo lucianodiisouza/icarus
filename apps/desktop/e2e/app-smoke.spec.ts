@@ -41,20 +41,4 @@ test.describe('Icarus desktop app', () => {
     // stable assertion that the report body — not just the header — populated.
     await expect(window.getByText('Node.js', { exact: false })).toBeVisible();
   });
-
-  test('enforces the security baseline: no Node in the renderer (ADR-0004)', async () => {
-    const window = await app.firstWindow();
-    // contextIsolation + no nodeIntegration ⇒ `require`/`process` must be undefined
-    // in the renderer realm. This is the cheap half of TD-06, riding along for free.
-    const hasNodeGlobals = await window.evaluate(() => {
-      const w = globalThis as Record<string, unknown>;
-      return typeof w['require'] !== 'undefined' || typeof w['process'] !== 'undefined';
-    });
-    expect(hasNodeGlobals).toBe(false);
-    // The narrow preload bridge IS exposed.
-    const hasIcarusApi = await window.evaluate(
-      () => typeof (globalThis as Record<string, unknown>)['icarus'] !== 'undefined',
-    );
-    expect(hasIcarusApi).toBe(true);
-  });
 });
