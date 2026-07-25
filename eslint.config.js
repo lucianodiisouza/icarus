@@ -24,8 +24,30 @@ export default tseslint.config(
   {
     rules: {
       '@typescript-eslint/no-explicit-any': 'error',
-      '@typescript-eslint/no-floating-promises': 'off', // requires type-aware linting; enabled per-package later
       'no-console': 'off',
+    },
+  },
+  {
+    // Type-aware linting (TD-09). Scoped to `src/**` because those are the files
+    // in each package's tsconfig — the stray config files (`vitest.config.ts`,
+    // and any tool config outside `src`) aren't in a project, so keeping them
+    // out of this block avoids "file not found in project" parser errors while
+    // still parsing them non-type-aware elsewhere.
+    //
+    // We deliberately enable ONLY `no-floating-promises` here, not the full
+    // `recommendedTypeChecked` preset: an unhandled promise is a real
+    // correctness bug (a rejection nobody sees, work that outlives its caller),
+    // and this is a Main-process + async-heavy codebase. The broader preset is a
+    // separate decision.
+    files: ['packages/*/src/**/*.ts', 'apps/*/src/**/*.{ts,tsx}'],
+    languageOptions: {
+      parserOptions: {
+        projectService: true,
+        tsconfigRootDir: import.meta.dirname,
+      },
+    },
+    rules: {
+      '@typescript-eslint/no-floating-promises': 'error',
     },
   },
   {
