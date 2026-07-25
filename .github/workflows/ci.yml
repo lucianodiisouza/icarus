@@ -89,7 +89,10 @@ jobs:
         # postinstall here — electron.launch then fails "failed to install
         # correctly". Force-run electron's own installer so the binary is always
         # fetched, independent of cache ordering.
-        run: pnpm --filter @icarus/desktop exec node -e "require('node:child_process').execFileSync(process.execPath, [require.resolve('electron/install.js')], { stdio: 'inherit' })"
+        run: >-
+          pnpm --filter @icarus/desktop exec node -e
+          "require('node:child_process').execFileSync(process.execPath,
+          [require.resolve('electron/install.js')], { stdio: 'inherit' })"
 
       - name: Install Electron/Chromium system libs + xvfb
         # Playwright's dep installer pulls the shared libraries Electron's Chromium
