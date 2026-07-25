@@ -11,13 +11,14 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "vitest run",
+    "test": "vitest run --coverage",
     "test:watch": "vitest",
     "build": "tsc"
   },
   "devDependencies": {
     "@icarus/config": "workspace:*",
     "@types/node": "^22.9.0",
+    "@vitest/coverage-v8": "^2.1.9",
     "typescript": "^5.6.3",
     "vitest": "^2.1.8"
   }
