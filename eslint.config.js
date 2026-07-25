@@ -58,4 +58,19 @@ export default tseslint.config(
     files: ['**/*.test.ts'],
     rules: {},
   },
+  {
+    // Plain-JS test fixtures run under Node; declare the Node globals they use so
+    // no-undef doesn't fire (TS files get these from tsconfig types instead).
+    files: ['**/*.mjs', '**/__fixtures__/**'],
+    languageOptions: {
+      globals: {
+        process: 'readonly',
+        console: 'readonly',
+        setTimeout: 'readonly',
+        setInterval: 'readonly',
+        clearTimeout: 'readonly',
+        clearInterval: 'readonly',
+      },
+    },
+  },
 );

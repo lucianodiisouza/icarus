@@ -32,6 +32,16 @@ Architecture held up well: the Electron-free `core` was fully unit-testable with
 shell (the ADR-0002 hedge paying off immediately), and the boundary lint rule caught a
 deliberate violation. No architecture changes proposed.
 
+## E-06 (ProcessManager) — deferred items — 2026-07-25
+
+ProcessManager shipped with a 0-orphans soak test (25 procs + grandchildren) proving the
+detached-group teardown. Known gaps, deferred with triggers:
+
+| ID | Deferred item | Why deferred | Pay-down trigger | Status |
+|----|---------------|--------------|------------------|--------|
+| TD-11 | **Cross-launch reaper** for hard-crash orphans | Clean-exit teardown covers `disposeAll`; a `SIGKILL` of Icarus itself can't run cleanup, and detached children then survive | First real long-lived spawn (M1 Metro), or first reported orphan | 🟥 planned (doc 20 T-06.9) |
+| TD-12 | **Windows tree-kill parity** (currently best-effort `taskkill`) | macOS-first (NG-7); POSIX group-kill is the tested path | Windows becomes a committed target | 🟥 accepted (doc 20 T-06.10) |
+
 ## Entries seeded from the plan (pre-code)
 
 The entries above are debts the _plan itself_ knowingly incurs. Real code will add more.

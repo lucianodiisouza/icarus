@@ -1,11 +1,30 @@
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { app, BrowserWindow, ipcMain, session } from 'electron';
+import { ProcessManager } from '@icarus/core';
 import { CHANNELS } from '../shared/ipc/contracts.js';
 import { registerHandlers } from './ipc/handlers.js';
 import { IpcRouter } from './ipc/router.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+
+/**
+ * The single ProcessManager for the app. Nothing spawns through it yet (M1's metro/devices
+ * modules will), but its teardown is wired to app exit now so the "no orphans" guarantee
+ * (G-2, TR-2) holds the moment the first process is spawned.
+ */
+const processes = new ProcessManager();
+
+function wireProcessTeardown(): void {
+  app.on('will-quit', () => {
+    void processes.disposeAll();
+  });
+  const onSignal = (): void => {
+    void processes.disposeAll().finally(() => process.exit(0));
+  };
+  process.once('SIGINT', onSignal);
+  process.once('SIGTERM', onSignal);
+}
 
 /**
  * Electron main process — a thin orchestrator (Architecture §Main). Its jobs: own the
@@ -75,6 +94,7 @@ function createWindow(): void {
 
 void app.whenReady().then(() => {
   applyContentSecurityPolicy();
+  wireProcessTeardown();
   bindIpc();
   createWindow();
 
