@@ -85,6 +85,22 @@ of Hermes + inspector proxy, not the client or bridge/bridgeless):
    and would have hung on the Reanimated target). Fixed: 10s default timeout. Validated
    here — the Reanimated probe failed cleanly instead of hanging.
 
+## RN DevTools attached (pressed `j` in Metro) — Network path clarified
+
+With the official RN DevTools (Fusebox) attached to the dev-client:
+- Each target now advertises a `devtoolsFrontendUrl`, but its **`webSocketDebuggerUrl`
+  is the SAME raw `/inspector/debug?...&page=1` endpoint we already tested.** DevTools
+  connects over the **identical wire** — there is no separate "richer" debugger endpoint.
+- Therefore the earlier `Network.enable ⇒ -32601` on that exact URL means **the proxy is
+  not injecting Network for this app** — DevTools gets no secret richer channel. On this
+  app (legacy Bridge, older RN) Network/Heap are simply not exposed over CDP.
+- `page=2` capabilities confirm it's secondary: `prefersFuseboxFrontend:false`,
+  `nativePageReloads:false`. Proxy reports `Protocol-Version 1.1`, `Browser: Mobile
+  JavaScript`.
+- **Remaining ambiguity:** whether **RN ≥ 0.76 with the network interceptor** exposes
+  `Network.*`. That needs a newer-RN app or observing DevTools traffic through our Phase-3
+  proxy.
+
 ## Coexistence findings (OQ-14 / HR-3) — confirmed (run #1)
 
 Two clients to the same page: the second connects and is accepted, then **silently
