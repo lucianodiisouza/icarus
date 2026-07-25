@@ -33,16 +33,26 @@ export class CdpClient {
 
   /**
    * Send a CDP command and await its result.
+   * A timeout is required: the spike found that when a second debugger connects Hermes
+   * silently starves the first connection, so an un-timed request hangs forever.
    * @param {string} method
    * @param {Record<string, unknown>} [params]
+   * @param {number} [timeoutMs]
    * @returns {Promise<any>}
    */
-  send(method, params = {}) {
+  send(method, params = {}, timeoutMs = 10000) {
     if (!this._ws) throw new Error("not connected");
     const id = this._nextId++;
     const payload = JSON.stringify({ id, method, params });
     return new Promise((resolve, reject) => {
-      this._pending.set(id, { resolve, reject });
+      const timer = setTimeout(() => {
+        this._pending.delete(id);
+        reject(new Error(`CDP timeout after ${timeoutMs}ms: ${method} (connection may have been evicted)`));
+      }, timeoutMs);
+      this._pending.set(id, {
+        resolve: (v) => { clearTimeout(timer); resolve(v); },
+        reject: (e) => { clearTimeout(timer); reject(e); },
+      });
       /** @type {WebSocket} */ (this._ws).send(payload);
     });
   }
