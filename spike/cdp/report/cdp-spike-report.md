@@ -7,19 +7,29 @@
 
 ## Verdict
 
-**CONDITIONAL GO — hybrid, and it must go THROUGH `@react-native/dev-middleware`, not raw
-sockets.** Two live findings reshaped this from the initial optimism:
-1. Rich domains (Network/Heap/Profiler) are **not on the raw Hermes page** (systemic
-   across both architectures) — they live behind the Fusebox/middleware layer.
-2. **Modern RN (0.86) requires AUTHORIZATION on the debugger WebSocket** (HTTP 401) —
-   anonymous raw connection, which worked on older Metro, no longer does.
+**GO (hybrid).** Third-party CDP over Metro's inspector proxy is viable and, on modern
+RN, **richer than first feared** — once you send the right `Origin` header. Findings, in
+order of how they landed:
 
-Net: connecting directly to Hermes CDP is **not** the viable path on current RN. The
-viable path is **integrating with the official `@react-native/dev-middleware`** (its
-inspector proxy) — which is also where auth and the richer domains are handled. Core CDP
-(Runtime/Log/Debugger/console/evaluate) is proven; the **transport strategy** is now
-"embed/route through dev-middleware," and Network/Heap on RN 0.86 remains **unprobed**
-(blocked by auth). Prior detail below reflects the earlier unauthenticated runs.
+1. **Core CDP works, zero app changes, on every app/arch tested:** discovery, connect,
+   `Runtime.evaluate`, console/log events. (Runtime, Log, Debugger, Console-via-Runtime.)
+2. **Modern RN (0.86) enforces an Origin CSRF check** on the debugger WebSocket (HTTP 401
+   without it). This is **not a token and not a blocker** — it is satisfied by sending
+   `Origin: http://localhost:<metroPort>` (hostname must be localhost/127.0.0.1/0.0.0.0/
+   [::]). This is the **sanctioned** mechanism the official DevTools uses; we integrate
+   with it, we do not bypass it.
+3. **With the Origin header, `Network.enable` is SUPPORTED on RN 0.86** and delivers real
+   `Network.requestWillBeSent` / `responseReceived` events — **Network inspection is
+   CDP-native on modern RN** (it was `Unsupported` on the older apps). Proven end-to-end.
+4. **Still bridge-only:** `HeapProfiler` / `Profiler` are `Unsupported` even on RN 0.86;
+   React tree / navigation / state need an in-app bridge (unchanged).
+5. **Coexistence** still needs a multiplexing proxy (Hermes = one connection); **target
+   selection** matters (secondary runtimes like Reanimated are partial/unresponsive).
+
+Net: **hybrid = Origin-authenticated CDP through the inspector proxy (Runtime/Log/
+Debugger/Console/Network on RN 0.76+) + an in-app bridge for Heap/Profiler and
+RN-semantics.** The transport is CDP-with-Origin-auth; aligning with
+`@react-native/dev-middleware`'s behavior is the stable path.
 
 - **Core CDP works as a third party, zero app changes, on BOTH architectures:**
   discovery, connect, `Runtime.evaluate`, console/log events — all pass. This de-risks
@@ -51,7 +61,7 @@ inspector proxy) — which is also where auth and the richer domains are handled
 | C4 | C1–C2 on a real dev-client | — | ✅ PASS | run #2 |
 | C5 | Coexists via multiplexing proxy | ⬜ (constraint confirmed) | ⬜ | Phase 3 not built; need is proven (OQ-14) |
 | C6 | C1–C2 on Expo Go | ✅ PASS | — | run #1 |
-| C7 | Network bodies over CDP (raw page) | ❌ | ❌ | `Network.enable` ⇒ `-32601` on both |
+| C7 | Network over CDP | ❌ (old RN) | ✅ on RN 0.86 | `Network.enable` supported + real request/response events captured (with Origin header) |
 | C8 | Capability matrix drawn | ✅ | ✅ | below |
 
 ## Capability matrix — raw connection to the Hermes page
@@ -74,11 +84,12 @@ of Hermes + inspector proxy, not the client or bridge/bridgeless):
 
 | Feature | Verdict |
 |---------|---------|
-| Console / logs | **CDP-native** ✅ |
-| Runtime evaluate / REPL | **CDP-native** ✅ |
-| Debugger / breakpoints | **CDP-native** ✅ |
-| Network inspection | **NOT raw-CDP** — via dev-middleware/Fusebox or in-app bridge ⚠️ |
-| Heap / memory / perf | **NOT raw-CDP** — same ⚠️ |
+| Console / logs | **CDP-native** ✅ (all versions) |
+| Runtime evaluate / REPL | **CDP-native** ✅ (all versions) |
+| Debugger / breakpoints | **CDP-native** ✅ (all versions) |
+| Network inspection | **CDP-native on RN ≥ 0.76** ✅ (Origin header required); absent on older RN |
+| Heap / memory | **in-app bridge** — `HeapProfiler` unsupported even on RN 0.86 ⚠️ |
+| Profiler / perf | **in-app bridge** — `Profiler` unsupported ⚠️ |
 | React tree / navigation / state | **in-app bridge** (app uses Redux — confirms state needs a bridge) |
 
 ## Notable discoveries
@@ -96,36 +107,48 @@ of Hermes + inspector proxy, not the client or bridge/bridgeless):
    and would have hung on the Reanimated target). Fixed: 10s default timeout. Validated
    here — the Reanimated probe failed cleanly instead of hanging.
 
-## ⭐ CRITICAL FINDING — modern RN (0.86) gates the debugger WebSocket behind AUTH
+## ⭐ KEY FINDING — modern RN (0.86) enforces an Origin CSRF check (solved) + Network is CDP-native
 
-While testing a fresh **RN 0.86** app (`org.reactjs.native.example.RNNetTest`,
-Bridgeless), the inspector proxy started **rejecting anonymous debugger connections**:
+A fresh **RN 0.86** app (`org.reactjs.native.example.RNNetTest`, Bridgeless) initially
+**rejected the debugger WebSocket with HTTP 401** — proxy-wide (glofox too), coincident
+with the newer `@react-native/dev-middleware`.
 
-- `GET /json/list` (discovery) still works **unauthenticated** → HTTP 200.
-- The **debugger WebSocket upgrade now returns HTTP 401 "Unauthorized"** — for the
-  RN 0.86 target **and** for the glofox target that connected fine earlier this session.
-  So it is **proxy-wide**, coincident with the newer Metro / `@react-native/dev-middleware`
-  that the RN 0.86 app brought.
-- The 401 is bare — no `WWW-Authenticate`, no token in the `webSocketDebuggerUrl`. The
-  official DevTools obtains authorization via a **separate sanctioned channel** (Metro's
-  "open debugger" / `devtoolsFrontendUrl` flow), not from `/json/list`.
+**Root cause (read from the exact source, `dev-middleware@0.86.0`
+`InspectorProxy.js`):** `#createDebuggerConnectionWSServer().verifyClient` allows the
+upgrade only if the request's **`Origin`** equals the server origin OR its hostname is in
+`WS_DEBUGGER_ALLOWED_ORIGIN_HOSTNAMES = { localhost, 127.0.0.1, 0.0.0.0, [::] }`. Our
+client sent **no `Origin`**, so it was refused. This is **CSRF protection** to stop
+remote websites from reaching the local debugger — not a token, not a real barrier for a
+local tool.
 
-**Why this matters (roadmap-level):**
-- Earlier PASS results (Expo Go, glofox) were against **older, unauthenticated** Metro.
-  On **current RN**, "just connect anonymously" **does not work** — this partially
-  **re-elevates TR-1**.
-- Icarus must connect using the **same sanctioned token mechanism** the official RN
-  DevTools uses. **We will not bypass the auth control** — the correct path is to
-  integrate with RN's official token flow (likely via `@react-native/dev-middleware`).
-- This is now a **first-class design item and open question (OQ-21)**, and it strengthens
-  the case for **going through / embedding `dev-middleware`** rather than raw sockets —
-  which also happens to be where Network/Heap live.
+**Fix (sanctioned, one header):** send `Origin: http://localhost:<metroPort>`.
+Empirically verified:
+- upgrade **without** Origin → `HTTP 401`
+- upgrade **with** `Origin: http://localhost:8081` → `HTTP 101` ✅
 
-**Not yet answered (blocked by the auth gate):** whether RN 0.86 exposes `Network.*` /
-`HeapProfiler.*` — we could not open the debugger socket to probe. Needs the sanctioned
-auth token first.
+Implemented in `lib/cdp.js` (`httpOriginFromWsUrl` derives it from the ws URL). We satisfy
+the check the same way official DevTools does; we do **not** bypass it. → tracked as
+**OQ-21** (design: mirror dev-middleware's Origin/allowlist expectations).
 
-## RN DevTools attached (pressed `j` in Metro) — Network path clarified
+**With the header, RN 0.86 capability probe:**
+
+| Domain | RN 0.86 (bridgeless) | Older apps (Expo Go / glofox) |
+|--------|----------------------|-------------------------------|
+| Runtime | ✅ | ✅ |
+| Log | ✅ | ✅ |
+| Debugger | ✅ | ✅ |
+| **Network** | **✅ SUPPORTED** | ❌ `-32601` |
+| HeapProfiler | ❌ `-32601` | ❌ |
+| Profiler | ❌ `-32601` | ❌ |
+| Console(legacy)/Page/DOM | ❌ (expected) | ❌ |
+
+**End-to-end Network proof:** enabled `Network`, injected
+`fetch('https://httpbin.org/get')` via `Runtime.evaluate`, and captured real
+`Network.requestWillBeSent` (GET …) + `Network.responseReceived` (status/mimeType) events
+over CDP. → **Network inspection is CDP-native on modern RN.** (Heap/Profiler are not —
+those remain bridge candidates.)
+
+## RN DevTools attached (pressed `j` in Metro) — same raw wire
 
 With the official RN DevTools (Fusebox) attached to the dev-client:
 - Each target now advertises a `devtoolsFrontendUrl`, but its **`webSocketDebuggerUrl`

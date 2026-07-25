@@ -19,10 +19,17 @@ export class CdpClient {
     this._ws = null;
   }
 
-  /** Open the socket and resolve once connected. */
+  /**
+   * Open the socket and resolve once connected.
+   * Modern RN (0.86+) enforces an Origin CSRF check on the debugger WebSocket: the
+   * Origin hostname must be localhost/127.0.0.1/0.0.0.0/[::] (see InspectorProxy
+   * WS_DEBUGGER_ALLOWED_ORIGIN_HOSTNAMES). We derive an http origin from the ws URL and
+   * send it — the same sanctioned path the official DevTools uses.
+   */
   connect() {
+    const origin = httpOriginFromWsUrl(this.url);
     return new Promise((resolve, reject) => {
-      const ws = new WebSocket(this.url);
+      const ws = new WebSocket(this.url, { headers: { Origin: origin } });
       this._ws = ws;
       ws.addEventListener("open", () => resolve(undefined));
       ws.addEventListener("error", (e) => reject(new Error(`WebSocket error: ${describe(e)}`)));
@@ -104,4 +111,19 @@ export class CdpClient {
 function describe(e) {
   if (e && typeof e.message === "string") return e.message;
   return "unknown";
+}
+
+/**
+ * Derive an allowed http(s) Origin from a ws(s) debugger URL.
+ * ws://localhost:8081/... -> http://localhost:8081
+ * @param {string} wsUrl
+ */
+function httpOriginFromWsUrl(wsUrl) {
+  try {
+    const u = new URL(wsUrl);
+    const scheme = u.protocol === "wss:" ? "https:" : "http:";
+    return `${scheme}//${u.host}`;
+  } catch {
+    return "http://localhost:8081";
+  }
 }
