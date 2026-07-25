@@ -32,6 +32,10 @@ export default defineConfig({
     build: {
       rollupOptions: {
         input: { index: resolve('src/main/index.ts') },
+        // `ws` must be required at runtime, not bundled: it lazily requires optional
+        // native deps (bufferutil/utf-8-validate) that break the bundler. @icarus/core
+        // and zod stay bundled (core is workspace TS source).
+        external: ['ws', 'bufferutil', 'utf-8-validate'],
       },
     },
   },
