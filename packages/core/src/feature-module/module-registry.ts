@@ -13,10 +13,13 @@ import type { FeatureModule, ModuleContext } from './feature-module.js';
  * No changes to the IPC router, the preload bridge, or the renderer are
  * needed for the new module to participate in the lifecycle.
  *
- * Per-module event subscriptions are NOT routed through the registry — modules
- * expose their events via \`on(event, handler)\` and the renderer subscribes
- * via the existing per-module IPC surface. Keeping the registry lifecycle-only
- * is what makes adding a module a one-liner instead of a per-channel setup.
+ * The registry stays Electron-free and lifecycle-only: it does not itself touch
+ * IPC. But it is the enumeration point the IPC layer needs — each module
+ * declares its runtime \`events\` list, and the desktop shell's
+ * \`bindRegistryToWindow\` iterates \`list()\` to auto-wire every module's events
+ * to a window (TD-15). That split keeps \`core\` free of Electron while still
+ * making "add a module → its events reach the renderer" a zero-core-change,
+ * one-liner registration.
  */
 export class ModuleRegistry {
   readonly #modules: FeatureModule<Record<string, unknown>>[] = [];

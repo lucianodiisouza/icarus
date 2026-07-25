@@ -393,12 +393,16 @@ function UnifiedLogSection(): ReactElement {
   const [containerHeight, setContainerHeight] = useState(280);
 
   useEffect(() => {
-    const off = window.icarus.onUnifiedLog((entry) => {
-      setEntries((prev) => {
-        const next = [...prev, { ...entry, key: keyRef.current++ }];
-        return next.length > 2000 ? next.slice(next.length - 2000) : next;
-      });
-    });
+    const off = window.icarus.onModuleEvent<UnifiedLogEntryOut>(
+      'unified-log',
+      'log',
+      ({ payload: entry }) => {
+        setEntries((prev) => {
+          const next = [...prev, { ...entry, key: keyRef.current++ }];
+          return next.length > 2000 ? next.slice(next.length - 2000) : next;
+        });
+      },
+    );
     return off;
   }, []);
 
@@ -661,18 +665,26 @@ function MetroSection(): ReactElement {
   const listRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const offLog = window.icarus.onMetroLog((entry) => {
-      setLogs((prev) => {
-        const next = [...prev, { ...entry, key: keyRef.current++ }];
-        return next.length > MAX_METRO ? next.slice(next.length - MAX_METRO) : next;
-      });
-    });
-    const offStatus = window.icarus.onMetroStatus((s: MetroStatusEvent) => {
-      setStatus(s.status);
-      setPort(s.port);
-      setProjectName(s.projectName);
-      setProjectKind(s.projectKind);
-    });
+    const offLog = window.icarus.onModuleEvent<MetroLogEventOut>(
+      'metro',
+      'log',
+      ({ payload: entry }) => {
+        setLogs((prev) => {
+          const next = [...prev, { ...entry, key: keyRef.current++ }];
+          return next.length > MAX_METRO ? next.slice(next.length - MAX_METRO) : next;
+        });
+      },
+    );
+    const offStatus = window.icarus.onModuleEvent<MetroStatusEvent>(
+      'metro',
+      'status',
+      ({ payload: s }) => {
+        setStatus(s.status);
+        setPort(s.port);
+        setProjectName(s.projectName);
+        setProjectKind(s.projectKind);
+      },
+    );
     return () => {
       offLog();
       offStatus();

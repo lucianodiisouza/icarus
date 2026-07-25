@@ -1,4 +1,4 @@
-import type { FeatureModule, Unsubscribe } from '@icarus/core';
+import type { FeatureModule, ModuleRegistry, Unsubscribe } from '@icarus/core';
 import type { BrowserWindow } from 'electron';
 
 /**
@@ -64,6 +64,41 @@ export function bindIpcForModuleEvents<Events extends Record<string, unknown>>(
     offs.push(off);
   }
 
+  return (): void => {
+    for (const off of offs) off();
+    offs.length = 0;
+  };
+}
+
+/**
+ * Auto-wire every registered module's declared events to a window (TD-15, the
+ * "auto-wires IPC channels" half). This is the declarative replacement for the
+ * old per-module imperative wiring in `createWindow`: instead of hand-writing a
+ * `metro.onLog(...) → webContents.send(...)` block per controller, the registry
+ * is the single source of truth for which modules exist and what they emit.
+ *
+ * Adding a new feature module is now genuinely one line at the call site
+ * (`registry.register(createFooModule())`) plus the module declaring its
+ * `events` — no `createWindow`, preload, or contract edits. Command-only
+ * modules (empty `events`) are skipped.
+ *
+ * Returns a single `Unsubscribe` that detaches every module's bridge; the
+ * caller wires it to the window's `closed` event so a window teardown doesn't
+ * leak subscriptions onto a destroyed `webContents`.
+ */
+export function bindRegistryToWindow(
+  registry: ModuleRegistry,
+  window: BrowserWindow,
+  now?: () => number,
+): Unsubscribe {
+  const deps: IpcBridgeDeps = now ? { window, now } : { window };
+  const offs: Unsubscribe[] = [];
+  for (const module of registry.list()) {
+    if (module.events.length === 0) continue;
+    // `registry.list()` erases the per-module `Events` map, but the module
+    // carries its own event-name list at runtime — safe to forward as-is.
+    offs.push(bindIpcForModuleEvents(module, module.events, deps));
+  }
   return (): void => {
     for (const off of offs) off();
     offs.length = 0;

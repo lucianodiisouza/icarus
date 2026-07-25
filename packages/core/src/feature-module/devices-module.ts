@@ -17,6 +17,7 @@ export function createDevicesModule(): DevicesModule {
   return defineFeatureModule<DevicesModuleEvents>({
     id: 'devices',
     displayName: 'iOS simulators',
+    events: [],
     init: () => {
       /* no-op: controller is constructed eagerly */
     },

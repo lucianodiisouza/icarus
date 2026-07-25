@@ -34,8 +34,15 @@ function makeFakeContext(): {
   };
 }
 
-/** Properties every FeatureModule must satisfy. */
-export function conformanceTests(makeModule: () => FeatureModule<Record<string, unknown>>): void {
+/**
+ * Properties every FeatureModule must satisfy. Generic over the module's event
+ * map: the kit never touches the event types, so accepting any concrete
+ * `FeatureModule<E>` avoids the variance clash that a fixed
+ * `FeatureModule<Record<string, unknown>>` parameter would force on callers.
+ */
+export function conformanceTests<E extends Record<string, unknown>>(
+  makeModule: () => FeatureModule<E>,
+): void {
   it('has a non-empty, kebab-case id', () => {
     const m = makeModule();
     expect(m.id).toBeTruthy();
@@ -45,6 +52,18 @@ export function conformanceTests(makeModule: () => FeatureModule<Record<string, 
   it('has a non-empty displayName', () => {
     const m = makeModule();
     expect(m.displayName).toBeTruthy();
+  });
+
+  it('declares an events array whose names each yield a working subscription', () => {
+    const m = makeModule();
+    expect(Array.isArray(m.events)).toBe(true);
+    // Every declared event name must be subscribable and return a callable,
+    // non-throwing unsubscribe — this is what bindRegistryToWindow relies on.
+    for (const name of m.events) {
+      const off = m.on(name, () => undefined);
+      expect(typeof off).toBe('function');
+      expect(() => off()).not.toThrow();
+    }
   });
 
   it('init() does not throw and registers at least one disposable when wired to ctx', async () => {
