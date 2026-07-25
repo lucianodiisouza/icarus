@@ -1,15 +1,27 @@
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { app, BrowserWindow, ipcMain, session } from 'electron';
-import { CdpClient, discoverProxies, MetroController, ProcessManager } from '@icarus/core';
+import {
+  CdpClient,
+  DevicesController,
+  discoverProxies,
+  MetroController,
+  ProcessManager,
+} from '@icarus/core';
 import {
   CHANNELS,
   cdpConnectInputSchema,
   cdpDisconnectInputSchema,
+  devicesBootInputSchema,
+  devicesInstallInputSchema,
+  devicesLaunchInputSchema,
+  devicesListInputSchema,
   EVENTS,
   metroStartInputSchema,
   metroStopInputSchema,
   type CdpCommandOutput,
+  type DevicesLaunchOutput,
+  type DevicesListOutput,
   type MetroStartOutput,
   type MetroStatusEvent,
 } from '../shared/ipc/contracts.js';
@@ -33,6 +45,12 @@ const processes = new ProcessManager();
  * ProcessManager so its teardown is covered by the app-exit hook above.
  */
 const metro = new MetroController({ processes });
+
+/**
+ * The single DevicesController (E-09). iOS-first; the underlying `simctl` invocations
+ * share the app's ProcessManager so no orphans.
+ */
+const devices = new DevicesController({ processes });
 
 function wireProcessTeardown(): void {
   app.on('will-quit', () => {
@@ -109,6 +127,33 @@ router.register(
 router.register(CHANNELS.METRO_STOP, metroStopInputSchema, async (): Promise<void> => {
   await metro.stop();
 });
+
+router.register(
+  CHANNELS.DEVICES_LIST,
+  devicesListInputSchema,
+  async (): Promise<DevicesListOutput> => devices.list({ refresh: true }),
+);
+
+router.register(CHANNELS.DEVICES_BOOT, devicesBootInputSchema, async ({ udid }): Promise<void> => {
+  await devices.boot(udid);
+});
+
+router.register(
+  CHANNELS.DEVICES_INSTALL,
+  devicesInstallInputSchema,
+  async ({ udid, appPath }): Promise<void> => {
+    await devices.install(udid, appPath);
+  },
+);
+
+router.register(
+  CHANNELS.DEVICES_LAUNCH,
+  devicesLaunchInputSchema,
+  async ({ udid, bundleId }): Promise<DevicesLaunchOutput> => {
+    const pid = await devices.launch(udid, bundleId);
+    return { pid };
+  },
+);
 
 function buildMetroStatusEvent(): MetroStatusEvent {
   return {

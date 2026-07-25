@@ -6,10 +6,17 @@ import type {
   CdpNetworkEventOut,
   CdpStatusEvent,
   DoctorCheckOutput,
+  DevicesLaunchOutput,
   MetroLogEventOut,
   MetroStartInput,
   MetroStartOutput,
   MetroStatusEvent,
+} from './contracts.js';
+import type {
+  DevicesBootInput,
+  DevicesInstallInput,
+  DevicesLaunchInput,
+  DevicesListOutput,
 } from './contracts.js';
 
 export type Unsubscribe = () => void;
@@ -43,6 +50,15 @@ export interface IcarusApi {
   onMetroLog(handler: (event: MetroLogEventOut) => void): Unsubscribe;
   /** Subscribe to Metro status changes. */
   onMetroStatus(handler: (status: MetroStatusEvent) => void): Unsubscribe;
+
+  /** List the available iOS simulators (E-09). */
+  devicesList(): Promise<DevicesListOutput>;
+  /** Boot a simulator by UDID. */
+  devicesBoot(input: DevicesBootInput): Promise<void>;
+  /** Install an .app bundle on a simulator. */
+  devicesInstall(input: DevicesInstallInput): Promise<void>;
+  /** Launch an installed app on a simulator. */
+  devicesLaunch(input: DevicesLaunchInput): Promise<DevicesLaunchOutput>;
 }
 
 declare global {

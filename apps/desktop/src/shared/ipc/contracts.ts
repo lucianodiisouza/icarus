@@ -6,6 +6,7 @@ import type {
   MetroLogEvent,
   MetroStatus,
   ProjectKind,
+  SimDevice,
 } from '@icarus/core';
 
 /**
@@ -31,6 +32,14 @@ export const CHANNELS = {
   METRO_START: 'command:metro.start',
   /** Command: stop the running Metro process (E-08). */
   METRO_STOP: 'command:metro.stop',
+  /** Query: list available iOS simulators (E-09). */
+  DEVICES_LIST: 'query:devices.list',
+  /** Command: boot a simulator by UDID (E-09). */
+  DEVICES_BOOT: 'command:devices.boot',
+  /** Command: install an .app bundle on a simulator (E-09). */
+  DEVICES_INSTALL: 'command:devices.install',
+  /** Command: launch an installed app on a simulator (E-09). */
+  DEVICES_LAUNCH: 'command:devices.launch',
 } as const;
 
 export type ChannelName = (typeof CHANNELS)[keyof typeof CHANNELS];
@@ -104,4 +113,29 @@ export interface MetroStatusEvent {
   readonly port: number | null;
   readonly projectName: string | null;
   readonly projectKind: ProjectKind;
+}
+
+// --- query:devices.list / command:devices.{boot,install,launch} (E-09) ---
+export const devicesListInputSchema = z.void();
+export type { SimDevice };
+export type DevicesListOutput = SimDevice[];
+
+export const devicesBootInputSchema = z.object({
+  udid: z.string().min(1),
+});
+export type DevicesBootInput = z.infer<typeof devicesBootInputSchema>;
+
+export const devicesInstallInputSchema = z.object({
+  udid: z.string().min(1),
+  appPath: z.string().min(1),
+});
+export type DevicesInstallInput = z.infer<typeof devicesInstallInputSchema>;
+
+export const devicesLaunchInputSchema = z.object({
+  udid: z.string().min(1),
+  bundleId: z.string().min(1),
+});
+export type DevicesLaunchInput = z.infer<typeof devicesLaunchInputSchema>;
+export interface DevicesLaunchOutput {
+  readonly pid: string;
 }
