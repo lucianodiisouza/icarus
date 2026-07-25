@@ -14,6 +14,20 @@ export type { LogLevel, LogRecord, LogSink, LoggerOptions } from './logger/logge
 // Debug context store (the shared model — G-3)
 export { DebugContextStore } from './context-store/debug-context-store.js';
 
+// Process manager (G-2, TR-2)
+export { ProcessManager } from './process/process-manager.js';
+export { ManagedProcess } from './process/managed-process.js';
+export { LineStream } from './process/line-stream.js';
+export type {
+  ExitInfo,
+  LineEvent,
+  ProcessSpec,
+  ProcessState,
+  ShutdownPolicy,
+  StopOptions,
+  StreamName,
+} from './process/types.js';
+
 // Environment doctor (TR-4)
 export { runDoctor, parseVersion } from './doctor/doctor.js';
 export { NodeToolRunner } from './doctor/tool-runner.js';
