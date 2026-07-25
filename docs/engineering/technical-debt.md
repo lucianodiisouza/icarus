@@ -24,7 +24,7 @@ CI green). Deferred work, logged so it isn't lost:
 |----|---------------|--------------|------------------|--------|
 | TD-06 | **Automated security-flag assertions** (contextIsolation/sandbox/CSP/allowlist) not yet tested in CI | Asserting live `webPreferences` needs a launched Electron instance (no display here) | Next desktop Epic that adds an E2E harness | 🟥 planned |
 | TD-07 | **No Playwright-for-Electron E2E smoke** (app-launch + doctor.check round-trip) | Needs a display + the Electron binary; headless env/CI bundles but doesn't launch | Add a display-enabled CI job or local run in the next desktop Epic | 🟥 planned |
-| TD-08 | **GUI launch of the walking skeleton is unverified** end-to-end | Same display/binary constraint; code builds + IPC router is unit-tested | First run on a machine with a display (local dev) | 🟥 accepted |
+| TD-08 | ~~GUI launch of the walking skeleton is unverified~~ | — | — | 🟩 **resolved 2026-07-25**: `electron-vite dev` launches the window with no errors on macOS; renderer serves on :5173. Needed the electron binary in `onlyBuiltDependencies`. |
 | TD-09 | **`no-floating-promises` lint is off** (needs type-aware linting config) | Deferred to keep the first ESLint setup simple | Enable typed linting per-package in a follow-up | 🟥 planned |
 | TD-10 | **`core` coverage gate (≥80%) not enforced** in CI yet | Tests exist and pass; the gate flag is not wired | Wire `vitest --coverage` threshold in the next CI touch | 🟥 planned |
 
