@@ -63,6 +63,20 @@ export interface IcarusApi {
 
   /** Subscribe to the unified log stream (E-10). */
   onUnifiedLog(handler: (entry: UnifiedLogEntryOut) => void): Unsubscribe;
+
+  /**
+   * Generic event subscription for any registered FeatureModule (TD-15 apps/desktop
+   * half). The renderer can subscribe to `(moduleId, eventName)` pairs without
+   * needing a per-event IPC channel defined in the preload.
+   *
+   * The payload envelope is `{ timestampMs, payload }` — the inner `payload` is
+   * the module-specific value the controller emitted.
+   */
+  onModuleEvent<T = unknown>(
+    moduleId: string,
+    eventName: string,
+    handler: (envelope: { timestampMs: number; payload: T }) => void,
+  ): Unsubscribe;
 }
 
 declare global {
