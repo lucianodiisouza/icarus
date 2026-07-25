@@ -1,9 +1,22 @@
 # ADR-0007 — In-process, plugin-shaped feature modules
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-07-25
 - **Deciders:** Staff Engineer / TPM
 - **Related:** G-1 (extensible foundation), TR-2 (process lifecycle), ADR-0006 (IPC/state), OQ-8
+
+> **Update 2026-07-25 (M1):** the `FeatureModule` / `ModuleContext` contract
+> was extracted in E-05 from the real shared shape of three production
+> modules (Metro E-08, Devices E-09, Logs E-10). The original plan was to
+> extract in M0 against a throwaway example module; per the rule of three
+> (defer-abstractions, ADR-0009), extraction waited for the third real
+> module. The interface lives at
+> `packages/core/src/feature-module/feature-module.ts` with a conformance
+> test kit at the same path. The existing three controllers have NOT yet
+> been refactored to implement the interface (mechanical follow-up); a
+> `ModuleRegistry` that auto-wires IPC channels for any registered
+> `FeatureModule` is the next step toward the 'adding a new module needs
+> no core changes' DoD.
 
 ## Context
 
