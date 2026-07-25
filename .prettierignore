@@ -1,0 +1,11 @@
+# Markdown docs are authored by hand; don't let Prettier reflow tables/prose.
+**/*.md
+
+# Disposable spike code (docs/engineering/19) — not held to product standards.
+spike/
+
+# Generated / vendored
+**/dist/**
+**/out/**
+**/build/**
+pnpm-lock.yaml
