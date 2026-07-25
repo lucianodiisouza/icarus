@@ -1,7 +1,19 @@
 import { describe, expect, it } from 'vitest';
-import { formatConsoleEvent, previewRemoteObject } from './console.js';
+import { formatConsoleEvent, previewRemoteObject, stripAnsi } from './console.js';
 
 const now = () => 1_000_000;
+const ESC = String.fromCharCode(27);
+
+describe('stripAnsi', () => {
+  it('removes ANSI SGR color/style codes (as RN emits them)', () => {
+    const raw = `${ESC}[48;2;253;247;231m${ESC}[30m${ESC}[1mNOTE: ${ESC}[22mhello`;
+    expect(stripAnsi(raw)).toBe('NOTE: hello');
+  });
+
+  it('leaves plain text untouched', () => {
+    expect(stripAnsi('just text 123')).toBe('just text 123');
+  });
+});
 
 describe('previewRemoteObject', () => {
   it('renders primitives, descriptions, and falls back to type', () => {

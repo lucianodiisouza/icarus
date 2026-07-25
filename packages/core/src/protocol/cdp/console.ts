@@ -33,6 +33,15 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
 
+// Matches ANSI SGR escape sequences (colors/styles) that RN embeds in console output.
+// eslint-disable-next-line no-control-regex
+const ANSI_ESCAPE = /\[[0-9;]*m/g;
+
+/** Strip terminal color/style escape codes so logs render as clean text in the UI. */
+export function stripAnsi(text: string): string {
+  return text.replace(ANSI_ESCAPE, '');
+}
+
 /**
  * Parse `Runtime.consoleAPICalled` params into a CdpConsoleEntry, or null if the shape is
  * unexpected (never throws — bad data is dropped, not crashed on).
@@ -44,9 +53,9 @@ export function formatConsoleEvent(
   if (!isRecord(params)) return null;
   const level = typeof params['type'] === 'string' ? params['type'] : 'log';
   const rawArgs = Array.isArray(params['args']) ? params['args'] : [];
-  const text = rawArgs
-    .map((arg) => (isRecord(arg) ? previewRemoteObject(arg) : String(arg)))
-    .join(' ');
+  const text = stripAnsi(
+    rawArgs.map((arg) => (isRecord(arg) ? previewRemoteObject(arg) : String(arg))).join(' '),
+  );
   // CDP timestamp is ms since epoch (a double); fall back to now if absent/invalid.
   const ts = params['timestamp'];
   const timestampMs = typeof ts === 'number' && Number.isFinite(ts) ? ts : now();
