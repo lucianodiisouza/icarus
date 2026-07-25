@@ -39,6 +39,8 @@ export {
 export { selectMainTarget, selectableTargets } from './protocol/cdp/target-selection.js';
 export { CdpMultiplexer } from './protocol/cdp/multiplexer.js';
 export type { SendFrame } from './protocol/cdp/multiplexer.js';
+export { formatConsoleEvent, previewRemoteObject } from './protocol/cdp/console.js';
+export type { CdpConsoleEntry } from './protocol/cdp/console.js';
 export type {
   CdpTarget,
   ProxyDiscovery,

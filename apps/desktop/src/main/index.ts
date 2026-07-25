@@ -1,10 +1,19 @@
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { app, BrowserWindow, ipcMain, session } from 'electron';
-import { ProcessManager } from '@icarus/core';
-import { CHANNELS } from '../shared/ipc/contracts.js';
+import { CdpClient, discoverProxies, ProcessManager } from '@icarus/core';
+import {
+  CHANNELS,
+  cdpConnectInputSchema,
+  cdpDisconnectInputSchema,
+  EVENTS,
+  type CdpCommandOutput,
+} from '../shared/ipc/contracts.js';
 import { registerHandlers } from './ipc/handlers.js';
 import { IpcRouter } from './ipc/router.js';
+import { CdpSession } from './cdp/cdp-session.js';
+import { startCdpProxy } from './cdp/ws-proxy.js';
+import { wsSocketFactory } from './cdp/ws-socket-factory.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -34,6 +43,43 @@ function wireProcessTeardown(): void {
 
 const router = new IpcRouter();
 registerHandlers(router);
+
+/**
+ * The live CDP session (E-14). Created once a window exists (its onLog/onStatus push to
+ * that window's renderer). The connect/disconnect commands drive it.
+ */
+let cdpSession: CdpSession | undefined;
+
+function createCdpSession(window: BrowserWindow): CdpSession {
+  const push = (channel: string, payload: unknown): void => {
+    if (!window.isDestroyed()) window.webContents.send(channel, payload);
+  };
+  return new CdpSession({
+    discover: async () => (await discoverProxies()).flatMap((proxy) => proxy.targets),
+    startProxy: (upstreamUrl) => startCdpProxy({ upstreamUrl }),
+    createClient: (downstreamUrl) =>
+      new CdpClient(downstreamUrl, { socketFactory: wsSocketFactory }),
+    onLog: (entry) => push(EVENTS.CDP_LOG, entry),
+    onStatus: (status, detail) => push(EVENTS.CDP_STATUS, { status, detail }),
+  });
+}
+
+router.register(
+  CHANNELS.CDP_CONNECT,
+  cdpConnectInputSchema,
+  async (): Promise<CdpCommandOutput> => {
+    await cdpSession?.connect();
+    return { status: cdpSession?.status ?? 'disconnected' };
+  },
+);
+router.register(
+  CHANNELS.CDP_DISCONNECT,
+  cdpDisconnectInputSchema,
+  async (): Promise<CdpCommandOutput> => {
+    await cdpSession?.disconnect();
+    return { status: 'disconnected' };
+  },
+);
 
 /** Bind every registered channel to ipcMain.handle, routing through the validated router. */
 function bindIpc(): void {
@@ -79,6 +125,11 @@ function createWindow(): void {
   });
 
   window.once('ready-to-show', () => window.show());
+  cdpSession = createCdpSession(window);
+  window.on('closed', () => {
+    void cdpSession?.disconnect();
+    cdpSession = undefined;
+  });
 
   // Refuse navigation to any external origin and block new windows (ADR-0004).
   window.webContents.on('will-navigate', (event) => event.preventDefault());

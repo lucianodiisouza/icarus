@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { DoctorReport } from '@icarus/core';
+import type { CdpConsoleEntry, DoctorReport } from '@icarus/core';
 
 /**
  * The IPC contract shared by main, preload, and renderer. This is the single trust
@@ -16,9 +16,31 @@ export const CHANNELS = {
   DOCTOR_CHECK: 'query:doctor.check',
   /** Command (intent): echo a message back — exercises the command + validation path. */
   APP_ECHO: 'command:app.echo',
+  /** Command: connect to a running RN app and start streaming its console logs (E-14). */
+  CDP_CONNECT: 'command:cdp.connect',
+  /** Command: tear down the live CDP session. */
+  CDP_DISCONNECT: 'command:cdp.disconnect',
 } as const;
 
 export type ChannelName = (typeof CHANNELS)[keyof typeof CHANNELS];
+
+/**
+ * One-way main → renderer push channels (streamed via webContents.send, not the
+ * request/response router). This is the first streaming IPC — justified by a real stream
+ * (live logs), per ADR-0009.
+ */
+export const EVENTS = {
+  CDP_LOG: 'event:cdp.log',
+  CDP_STATUS: 'event:cdp.status',
+} as const;
+
+export type CdpConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
+
+export type CdpLogEvent = CdpConsoleEntry;
+export interface CdpStatusEvent {
+  readonly status: CdpConnectionStatus;
+  readonly detail?: string;
+}
 
 // --- query:doctor.check ---
 export const doctorCheckInputSchema = z.void();
@@ -33,4 +55,11 @@ export type AppEchoInput = z.infer<typeof appEchoInputSchema>;
 export interface AppEchoOutput {
   readonly echoed: string;
   readonly at: string;
+}
+
+// --- command:cdp.connect / cdp.disconnect ---
+export const cdpConnectInputSchema = z.void();
+export const cdpDisconnectInputSchema = z.void();
+export interface CdpCommandOutput {
+  readonly status: CdpConnectionStatus;
 }
