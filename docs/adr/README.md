@@ -12,9 +12,10 @@ We follow a lightweight variant of the Nygard ADR format.
 `Proposed` → `Accepted` → (`Deprecated` | `Superseded`)
 
 In Phase 0, ADRs are **Proposed** until the M0 plan is signed off, at which point the
-foundational ones become **Accepted**. TR-1-dependent ADRs (notably ADR-0008) stay
-**Proposed** until the M1 spike validates them — we will not fake certainty about a
-decision that hinges on an unverified capability.
+foundational ones become **Accepted**. ADR-0008 was TR-1-dependent and is now
+**Accepted** — the M0 CDP spike validated it live (see its
+[report](../engineering/reports/cdp-spike-report.md)); we did not fake certainty, we
+tested first.
 
 ## Index
 
@@ -27,7 +28,7 @@ decision that hinges on an unverified capability.
 | [0005](ADR-0005-ui-stack.md) | UI stack: React + Vite + Zustand | Proposed | |
 | [0006](ADR-0006-ipc-and-state.md) | Renderer↔Main state via snapshot/delta IPC | Proposed | |
 | [0007](ADR-0007-feature-module-architecture.md) | In-process plugin-shaped feature modules | Proposed | |
-| [0008](ADR-0008-debugger-protocol-cdp.md) | Debugger protocol: CDP via Metro inspector | **Proposed — gated on M0 spike (TR-1)** | Go/no-go for the vision |
+| [0008](ADR-0008-debugger-protocol-cdp.md) | Debugger protocol: Origin-authed CDP via Metro inspector (hybrid) | **Accepted** (validated by M0 spike) | [Spike report](../engineering/reports/cdp-spike-report.md) |
 | [0009](ADR-0009-defer-abstractions-rule-of-three.md) | Defer streaming/module-SDK abstractions (rule of three) | Proposed | From [Review #1](../engineering/17-architecture-review-2026-07-25.md) |
 
 ## Template
