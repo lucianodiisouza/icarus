@@ -30,6 +30,9 @@ jobs:
           cache: pnpm
 
       - name: Install (frozen lockfile)
+        # CI bundles but never launches Electron, so skip the ~100MB binary download.
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
         run: pnpm install --frozen-lockfile
 
       # Independent checks — run them all even if an earlier one fails, so a PR shows
