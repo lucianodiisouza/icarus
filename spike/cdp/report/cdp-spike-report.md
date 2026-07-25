@@ -7,8 +7,19 @@
 
 ## Verdict
 
-**CONDITIONAL GO — hybrid confirmed, with a larger middleware/bridge surface than first
-assumed.**
+**CONDITIONAL GO — hybrid, and it must go THROUGH `@react-native/dev-middleware`, not raw
+sockets.** Two live findings reshaped this from the initial optimism:
+1. Rich domains (Network/Heap/Profiler) are **not on the raw Hermes page** (systemic
+   across both architectures) — they live behind the Fusebox/middleware layer.
+2. **Modern RN (0.86) requires AUTHORIZATION on the debugger WebSocket** (HTTP 401) —
+   anonymous raw connection, which worked on older Metro, no longer does.
+
+Net: connecting directly to Hermes CDP is **not** the viable path on current RN. The
+viable path is **integrating with the official `@react-native/dev-middleware`** (its
+inspector proxy) — which is also where auth and the richer domains are handled. Core CDP
+(Runtime/Log/Debugger/console/evaluate) is proven; the **transport strategy** is now
+"embed/route through dev-middleware," and Network/Heap on RN 0.86 remains **unprobed**
+(blocked by auth). Prior detail below reflects the earlier unauthenticated runs.
 
 - **Core CDP works as a third party, zero app changes, on BOTH architectures:**
   discovery, connect, `Runtime.evaluate`, console/log events — all pass. This de-risks
@@ -84,6 +95,35 @@ of Hermes + inspector proxy, not the client or bridge/bridgeless):
    starved/unresponsive connection hung forever (caused a 2-min hang in the OQ-14 probe
    and would have hung on the Reanimated target). Fixed: 10s default timeout. Validated
    here — the Reanimated probe failed cleanly instead of hanging.
+
+## ⭐ CRITICAL FINDING — modern RN (0.86) gates the debugger WebSocket behind AUTH
+
+While testing a fresh **RN 0.86** app (`org.reactjs.native.example.RNNetTest`,
+Bridgeless), the inspector proxy started **rejecting anonymous debugger connections**:
+
+- `GET /json/list` (discovery) still works **unauthenticated** → HTTP 200.
+- The **debugger WebSocket upgrade now returns HTTP 401 "Unauthorized"** — for the
+  RN 0.86 target **and** for the glofox target that connected fine earlier this session.
+  So it is **proxy-wide**, coincident with the newer Metro / `@react-native/dev-middleware`
+  that the RN 0.86 app brought.
+- The 401 is bare — no `WWW-Authenticate`, no token in the `webSocketDebuggerUrl`. The
+  official DevTools obtains authorization via a **separate sanctioned channel** (Metro's
+  "open debugger" / `devtoolsFrontendUrl` flow), not from `/json/list`.
+
+**Why this matters (roadmap-level):**
+- Earlier PASS results (Expo Go, glofox) were against **older, unauthenticated** Metro.
+  On **current RN**, "just connect anonymously" **does not work** — this partially
+  **re-elevates TR-1**.
+- Icarus must connect using the **same sanctioned token mechanism** the official RN
+  DevTools uses. **We will not bypass the auth control** — the correct path is to
+  integrate with RN's official token flow (likely via `@react-native/dev-middleware`).
+- This is now a **first-class design item and open question (OQ-21)**, and it strengthens
+  the case for **going through / embedding `dev-middleware`** rather than raw sockets —
+  which also happens to be where Network/Heap live.
+
+**Not yet answered (blocked by the auth gate):** whether RN 0.86 exposes `Network.*` /
+`HeapProfiler.*` — we could not open the debugger socket to probe. Needs the sanctioned
+auth token first.
 
 ## RN DevTools attached (pressed `j` in Metro) — Network path clarified
 
