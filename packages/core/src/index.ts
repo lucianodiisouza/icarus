@@ -108,3 +108,17 @@ export {
   parseSyslogLine,
 } from './native-logs/ios-syslog.js';
 export type { NativeLogSourceLike, NativeLogExecutor } from './native-logs/ios-syslog.js';
+
+// Feature-module contract (E-05) and module wrappers (TD-14/15)
+export { defineFeatureModule } from './feature-module/feature-module.js';
+export type { FeatureModule, ModuleContext } from './feature-module/feature-module.js';
+export { ModuleRegistry } from './feature-module/module-registry.js';
+export { createMetroModule } from './feature-module/metro-module.js';
+export type { MetroModule, MetroModuleEvents } from './feature-module/metro-module.js';
+export { createUnifiedLogModule } from './feature-module/unified-log-module.js';
+export type {
+  UnifiedLogModule,
+  UnifiedLogModuleEvents,
+} from './feature-module/unified-log-module.js';
+export { createDevicesModule } from './feature-module/devices-module.js';
+export type { DevicesModule, DevicesModuleEvents } from './feature-module/devices-module.js';
