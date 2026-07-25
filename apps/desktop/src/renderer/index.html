@@ -2,10 +2,9 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta
-      http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'"
-    />
+    <!-- CSP is applied at runtime by the main process (env-aware: strict in prod,
+         dev-server-friendly in dev) and injected as a strict meta at build time for the
+         packaged file:// app. See main/index.ts and electron.vite.config.ts. -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Icarus — RNStudio</title>
   </head>
