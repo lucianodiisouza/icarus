@@ -37,6 +37,7 @@ import { startCdpProxy } from './cdp/ws-proxy.js';
 import { wsSocketFactory } from './cdp/ws-socket-factory.js';
 import { AutoAttach } from './auto-attach.js';
 import { bindRegistryToWindow } from './feature-module-bridge.js';
+import { wireMetroIntoUnified } from './unified-fan-in.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -84,15 +85,24 @@ registry.register(createMetroModule(metro), { processes });
 registry.register(createDevicesModule(), { processes });
 registry.register(createUnifiedLogModule(unified), { processes });
 
+/**
+ * Fan Metro output into the unified log (TD-21). CDP console entries are fanned
+ * in per-window inside `createCdpSession`; Metro is app-lifetime, so its wire is
+ * set up once here and detached on exit.
+ */
+const unbindMetroFanIn = wireMetroIntoUnified(metro, unified);
+
 function wireProcessTeardown(): void {
   app.on('will-quit', () => {
-    // Dispose the module registry first (releases per-module subscriptions),
-    // then the ProcessManager (kills any live child processes). The order
-    // matters: a module might still be holding a reference to a process when
-    // we tear it down.
+    // Detach the Metro→unified fan-in, then dispose the module registry
+    // (releases per-module subscriptions), then the ProcessManager (kills any
+    // live child processes). The order matters: a module might still be holding
+    // a reference to a process when we tear it down.
+    unbindMetroFanIn();
     void registry.disposeAll().finally(() => processes.disposeAll());
   });
   const onSignal = (): void => {
+    unbindMetroFanIn();
     void registry.disposeAll().finally(() => processes.disposeAll().finally(() => process.exit(0)));
   };
   process.once('SIGINT', onSignal);
