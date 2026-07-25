@@ -7,6 +7,7 @@ import type {
   MetroLogEventOut,
   MetroStartInput,
   MetroStatusEvent,
+  UnifiedLogEntryOut,
 } from '../shared/ipc/contracts.js';
 import type { IcarusApi, Unsubscribe } from '../shared/ipc/api.js';
 
@@ -39,6 +40,8 @@ const api: IcarusApi = {
   devicesBoot: (input) => ipcRenderer.invoke(CHANNELS.DEVICES_BOOT, input),
   devicesInstall: (input) => ipcRenderer.invoke(CHANNELS.DEVICES_INSTALL, input),
   devicesLaunch: (input) => ipcRenderer.invoke(CHANNELS.DEVICES_LAUNCH, input),
+  onUnifiedLog: (handler: (entry: UnifiedLogEntryOut) => void) =>
+    subscribe(EVENTS.UNIFIED_LOG, handler),
 };
 
 contextBridge.exposeInMainWorld('icarus', api);
