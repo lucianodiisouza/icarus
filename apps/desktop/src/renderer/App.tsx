@@ -5,6 +5,10 @@ import type {
   CdpLogEvent,
   CdpNetworkEventOut,
   CdpNetworkSupport,
+  MetroLogEventOut,
+  MetroStatus,
+  MetroStatusEvent,
+  ProjectKind,
 } from '../shared/ipc/contracts.js';
 
 const STATUS_COLOR: Record<string, string> = {
@@ -26,6 +30,7 @@ const LEVEL_COLOR: Record<string, string> = {
 
 const MAX_LOGS = 500;
 const MAX_NETWORK = 200;
+const MAX_METRO = 200;
 
 interface LogRow extends CdpLogEvent {
   readonly key: number;
@@ -35,12 +40,28 @@ interface NetworkRow extends CdpNetworkEventOut {
   readonly key: number;
 }
 
+interface MetroLogRow extends MetroLogEventOut {
+  readonly key: number;
+}
+
+const METRO_STATUS_COLOR: Record<MetroStatus, string> = {
+  idle: '#57606a',
+  starting: '#9a6700',
+  ready: '#1a7f37',
+  stopping: '#9a6700',
+  exited: '#57606a',
+  errored: '#cf222e',
+  'unsupported-project': '#cf222e',
+};
+
 export function App(): ReactElement {
   return (
     <main style={{ fontFamily: 'system-ui, sans-serif', padding: 24, maxWidth: 820 }}>
       <h1 style={{ marginBottom: 4 }}>Icarus — RNStudio</h1>
       <p style={{ color: '#57606a', marginTop: 0 }}>Walking skeleton</p>
       <DoctorSection />
+      <hr style={{ margin: '28px 0', border: 0, borderTop: '1px solid #eaeef2' }} />
+      <MetroSection />
       <hr style={{ margin: '28px 0', border: 0, borderTop: '1px solid #eaeef2' }} />
       <LiveLogsSection />
       <hr style={{ margin: '28px 0', border: 0, borderTop: '1px solid #eaeef2' }} />
@@ -178,6 +199,154 @@ function LiveLogsSection(): ReactElement {
             <div key={log.key} style={{ padding: '2px 0', whiteSpace: 'pre-wrap' }}>
               <span style={{ color: LEVEL_COLOR[log.level] ?? '#57606a' }}>[{log.level}]</span>{' '}
               {log.text}
+            </div>
+          ))
+        )}
+      </div>
+    </section>
+  );
+}
+
+function MetroSection(): ReactElement {
+  const [status, setStatus] = useState<MetroStatus>('idle');
+  const [port, setPort] = useState<number | null>(null);
+  const [projectName, setProjectName] = useState<string | null>(null);
+  const [projectKind, setProjectKind] = useState<ProjectKind>('unknown');
+  const [cwd, setCwd] = useState<string>('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [logs, setLogs] = useState<MetroLogRow[]>([]);
+  const keyRef = useRef(0);
+  const listRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const offLog = window.icarus.onMetroLog((entry) => {
+      setLogs((prev) => {
+        const next = [...prev, { ...entry, key: keyRef.current++ }];
+        return next.length > MAX_METRO ? next.slice(next.length - MAX_METRO) : next;
+      });
+    });
+    const offStatus = window.icarus.onMetroStatus((s: MetroStatusEvent) => {
+      setStatus(s.status);
+      setPort(s.port);
+      setProjectName(s.projectName);
+      setProjectKind(s.projectKind);
+    });
+    return () => {
+      offLog();
+      offStatus();
+    };
+  }, []);
+
+  useEffect(() => {
+    listRef.current?.scrollTo({ top: listRef.current.scrollHeight });
+  }, [logs]);
+
+  const onStart = useCallback(async () => {
+    if (!cwd.trim()) return;
+    setBusy(true);
+    setError(null);
+    setLogs([]);
+    try {
+      await window.icarus.metroStart({ cwd: cwd.trim() });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }, [cwd]);
+
+  const onStop = useCallback(async () => {
+    setBusy(true);
+    try {
+      await window.icarus.metroStop();
+    } finally {
+      setBusy(false);
+    }
+  }, []);
+
+  const statusColor = METRO_STATUS_COLOR[status];
+  const ready = status === 'ready';
+  const busyRunning = busy || status === 'starting' || status === 'stopping';
+
+  return (
+    <section>
+      <h2 style={{ fontSize: 16 }}>Metro dev server</h2>
+      <p style={{ color: '#57606a', marginTop: 0, fontSize: 13 }}>
+        {projectName ? (
+          <>
+            <strong>{projectName}</strong> <span style={{ color: '#8c959f' }}>({projectKind})</span>
+          </>
+        ) : (
+          'Detect a React Native / Expo project and start its dev server.'
+        )}
+        {' · '}
+        <span style={{ color: statusColor, fontWeight: 600 }}>{status}</span>
+        {port !== null && <> on :{port}</>}
+      </p>
+
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
+        <input
+          type="text"
+          value={cwd}
+          onChange={(e) => setCwd(e.target.value)}
+          placeholder="/path/to/your/react-native-or-expo-project"
+          disabled={ready || busyRunning}
+          style={{
+            flex: 1,
+            padding: '6px 10px',
+            fontSize: 13,
+            fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+            border: '1px solid #d0d7de',
+            borderRadius: 6,
+          }}
+        />
+        <button
+          type="button"
+          onClick={() => void onStart()}
+          disabled={ready || busyRunning || !cwd.trim()}
+          style={btnStyle}
+        >
+          {status === 'starting' ? 'Starting…' : 'Start Metro'}
+        </button>
+        <button
+          type="button"
+          onClick={() => void onStop()}
+          disabled={status === 'idle' || status === 'exited' || busyRunning}
+          style={btnStyle}
+        >
+          {status === 'stopping' ? 'Stopping…' : 'Stop'}
+        </button>
+      </div>
+      {error && <p style={{ color: STATUS_COLOR.error }}>Error: {error}</p>}
+
+      <div
+        ref={listRef}
+        style={{
+          height: 200,
+          overflowY: 'auto',
+          border: '1px solid #eaeef2',
+          borderRadius: 6,
+          padding: 8,
+          fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+          fontSize: 12,
+          background: '#0d1117',
+          color: '#c9d1d9',
+        }}
+      >
+        {logs.length === 0 ? (
+          <p style={{ color: '#8b949e', margin: 8 }}>Metro output will appear here.</p>
+        ) : (
+          logs.map((l) => (
+            <div
+              key={l.key}
+              style={{
+                padding: '1px 0',
+                color: l.stream === 'stderr' ? '#ffa198' : '#79c0ff',
+                whiteSpace: 'pre-wrap',
+              }}
+            >
+              {l.text}
             </div>
           ))
         )}

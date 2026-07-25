@@ -66,3 +66,21 @@ export type {
   ToolProbeResult,
   ToolRunner,
 } from './doctor/types.js';
+
+// Project detection (E-08)
+export { detectProject, classifyProject } from './detect-project/detect-project.js';
+export type {
+  DetectedProject,
+  DetectOptions,
+  ProjectKind,
+} from './detect-project/detect-project.js';
+
+// Metro controller (E-08)
+export { MetroController, buildMetroCommand, extractMetroPort } from './metro/metro-controller.js';
+export type {
+  MetroControllerDeps,
+  MetroLogEvent,
+  MetroProcess,
+  MetroStarted,
+  MetroStatus,
+} from './metro/metro-controller.js';

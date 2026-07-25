@@ -6,6 +6,10 @@ import type {
   CdpNetworkEventOut,
   CdpStatusEvent,
   DoctorCheckOutput,
+  MetroLogEventOut,
+  MetroStartInput,
+  MetroStartOutput,
+  MetroStatusEvent,
 } from './contracts.js';
 
 export type Unsubscribe = () => void;
@@ -30,6 +34,15 @@ export interface IcarusApi {
   onCdpNetwork(handler: (event: CdpNetworkEventOut) => void): Unsubscribe;
   /** Subscribe to CDP connection-status changes. Returns an unsubscribe function. */
   onCdpStatus(handler: (status: CdpStatusEvent) => void): Unsubscribe;
+
+  /** Start the Metro dev server for a project (E-08). */
+  metroStart(input: MetroStartInput): Promise<MetroStartOutput>;
+  /** Stop the running Metro dev server. */
+  metroStop(): Promise<void>;
+  /** Subscribe to live Metro stdout/stderr lines. */
+  onMetroLog(handler: (event: MetroLogEventOut) => void): Unsubscribe;
+  /** Subscribe to Metro status changes. */
+  onMetroStatus(handler: (status: MetroStatusEvent) => void): Unsubscribe;
 }
 
 declare global {

@@ -1,6 +1,13 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron';
 import { CHANNELS, EVENTS, type AppEchoInput } from '../shared/ipc/contracts.js';
-import type { CdpLogEvent, CdpNetworkEventOut, CdpStatusEvent } from '../shared/ipc/contracts.js';
+import type {
+  CdpLogEvent,
+  CdpNetworkEventOut,
+  CdpStatusEvent,
+  MetroLogEventOut,
+  MetroStartInput,
+  MetroStatusEvent,
+} from '../shared/ipc/contracts.js';
 import type { IcarusApi, Unsubscribe } from '../shared/ipc/api.js';
 
 /**
@@ -23,6 +30,11 @@ const api: IcarusApi = {
   onCdpNetwork: (handler: (event: CdpNetworkEventOut) => void) =>
     subscribe(EVENTS.CDP_NETWORK, handler),
   onCdpStatus: (handler: (status: CdpStatusEvent) => void) => subscribe(EVENTS.CDP_STATUS, handler),
+  metroStart: (input: MetroStartInput) => ipcRenderer.invoke(CHANNELS.METRO_START, input),
+  metroStop: () => ipcRenderer.invoke(CHANNELS.METRO_STOP),
+  onMetroLog: (handler: (event: MetroLogEventOut) => void) => subscribe(EVENTS.METRO_LOG, handler),
+  onMetroStatus: (handler: (status: MetroStatusEvent) => void) =>
+    subscribe(EVENTS.METRO_STATUS, handler),
 };
 
 contextBridge.exposeInMainWorld('icarus', api);
