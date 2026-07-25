@@ -9,6 +9,7 @@ import type {
   MetroStatus,
   MetroStatusEvent,
   ProjectKind,
+  SimDevice,
 } from '../shared/ipc/contracts.js';
 
 const STATUS_COLOR: Record<string, string> = {
@@ -62,6 +63,8 @@ export function App(): ReactElement {
       <DoctorSection />
       <hr style={{ margin: '28px 0', border: 0, borderTop: '1px solid #eaeef2' }} />
       <MetroSection />
+      <hr style={{ margin: '28px 0', border: 0, borderTop: '1px solid #eaeef2' }} />
+      <DevicesSection />
       <hr style={{ margin: '28px 0', border: 0, borderTop: '1px solid #eaeef2' }} />
       <LiveLogsSection />
       <hr style={{ margin: '28px 0', border: 0, borderTop: '1px solid #eaeef2' }} />
@@ -206,6 +209,164 @@ function LiveLogsSection(): ReactElement {
     </section>
   );
 }
+
+function DevicesSection(): ReactElement {
+  const [devices, setDevices] = useState<SimDevice[]>([]);
+  const [busy, setBusy] = useState<string | null>(null); // udid in flight, or null
+  const [error, setError] = useState<string | null>(null);
+  const [appPath, setAppPath] = useState<string>('');
+  const [bundleId, setBundleId] = useState<string>('');
+
+  const refresh = useCallback(async () => {
+    setBusy('__list');
+    setError(null);
+    try {
+      setDevices(await window.icarus.devicesList());
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(null);
+    }
+  }, []);
+
+  const onBoot = useCallback(async (udid: string) => {
+    setBusy(udid);
+    setError(null);
+    try {
+      await window.icarus.devicesBoot({ udid });
+      setDevices(await window.icarus.devicesList());
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(null);
+    }
+  }, []);
+
+  const onInstallAndLaunch = useCallback(
+    async (udid: string) => {
+      if (!appPath.trim() || !bundleId.trim()) return;
+      setBusy(udid);
+      setError(null);
+      try {
+        await window.icarus.devicesInstall({ udid, appPath: appPath.trim() });
+        const { pid } = await window.icarus.devicesLaunch({ udid, bundleId: bundleId.trim() });
+        setError(`Launched as PID ${pid}`);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+      } finally {
+        setBusy(null);
+      }
+    },
+    [appPath, bundleId],
+  );
+
+  return (
+    <section>
+      <h2 style={{ fontSize: 16 }}>iOS simulators (E-09, iOS only for v1)</h2>
+      <p style={{ color: '#57606a', marginTop: 0, fontSize: 13 }}>
+        Pick a booted simulator and (optionally) install + launch your app on it.
+      </p>
+      <div
+        style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8, flexWrap: 'wrap' }}
+      >
+        <input
+          type="text"
+          value={appPath}
+          onChange={(e) => setAppPath(e.target.value)}
+          placeholder="/path/to/YourApp.app"
+          style={inputStyle}
+        />
+        <input
+          type="text"
+          value={bundleId}
+          onChange={(e) => setBundleId(e.target.value)}
+          placeholder="com.example.bundleId"
+          style={inputStyle}
+        />
+        <button
+          type="button"
+          onClick={() => void refresh()}
+          disabled={busy !== null}
+          style={btnStyle}
+        >
+          {busy === '__list' ? 'Refreshing…' : 'Refresh'}
+        </button>
+      </div>
+      {error && <p style={{ color: STATUS_COLOR.error, fontSize: 12 }}>{error}</p>}
+
+      {devices.length === 0 ? (
+        <p style={{ color: '#8c959f', fontSize: 13 }}>
+          No simulators. Click <strong>Refresh</strong> to scan.
+        </p>
+      ) : (
+        <table
+          style={{
+            width: '100%',
+            borderCollapse: 'collapse',
+            fontSize: 13,
+            fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+          }}
+        >
+          <thead>
+            <tr style={{ borderBottom: '1px solid #eaeef2', textAlign: 'left' }}>
+              <th style={{ padding: 6 }}>Name</th>
+              <th style={{ padding: 6 }}>State</th>
+              <th style={{ padding: 6 }}>UDID</th>
+              <th style={{ padding: 6 }}>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {devices.map((d) => (
+              <tr key={d.udid} style={{ borderBottom: '1px solid #f0f3f6' }}>
+                <td style={{ padding: 6 }}>{d.name}</td>
+                <td
+                  style={{
+                    padding: 6,
+                    color: d.state === 'Booted' ? STATUS_COLOR.connected : '#57606a',
+                  }}
+                >
+                  {d.state}
+                </td>
+                <td style={{ padding: 6, color: '#8c959f', fontSize: 11 }}>{d.udid}</td>
+                <td style={{ padding: 6 }}>
+                  {d.state === 'Booted' ? (
+                    <button
+                      type="button"
+                      onClick={() => void onInstallAndLaunch(d.udid)}
+                      disabled={busy !== null || !appPath.trim() || !bundleId.trim()}
+                      style={btnStyle}
+                    >
+                      {busy === d.udid ? 'Working…' : 'Install + Launch'}
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => void onBoot(d.udid)}
+                      disabled={busy !== null}
+                      style={btnStyle}
+                    >
+                      {busy === d.udid ? 'Booting…' : 'Boot'}
+                    </button>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </section>
+  );
+}
+
+const inputStyle = {
+  flex: 1,
+  minWidth: 200,
+  padding: '6px 10px',
+  fontSize: 13,
+  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+  border: '1px solid #d0d7de',
+  borderRadius: 6,
+} as const;
 
 function MetroSection(): ReactElement {
   const [status, setStatus] = useState<MetroStatus>('idle');

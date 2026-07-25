@@ -35,6 +35,10 @@ const api: IcarusApi = {
   onMetroLog: (handler: (event: MetroLogEventOut) => void) => subscribe(EVENTS.METRO_LOG, handler),
   onMetroStatus: (handler: (status: MetroStatusEvent) => void) =>
     subscribe(EVENTS.METRO_STATUS, handler),
+  devicesList: () => ipcRenderer.invoke(CHANNELS.DEVICES_LIST),
+  devicesBoot: (input) => ipcRenderer.invoke(CHANNELS.DEVICES_BOOT, input),
+  devicesInstall: (input) => ipcRenderer.invoke(CHANNELS.DEVICES_INSTALL, input),
+  devicesLaunch: (input) => ipcRenderer.invoke(CHANNELS.DEVICES_LAUNCH, input),
 };
 
 contextBridge.exposeInMainWorld('icarus', api);
