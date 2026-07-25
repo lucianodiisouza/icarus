@@ -84,8 +84,9 @@ real shared shape (rule of three) — the `FeatureModule` contract + conformance
 - Informal probe: a store snapshot handed to an LLM once, to sanity-check the store's
   shape before M2 (A-4).
 
-**Related:** Epics E-08 metro, E-09 devices, E-10 logs pipe, E-11 log UI, plus the
-extracted E-05 module SDK. Goals G-3(real), G-4, G-5. Risks TR-6.
+**Related:** Epics **E-14 CDP transport & multiplexing proxy** (from the spike), E-08
+metro, E-09 devices, E-10 logs pipe, E-11 log UI, plus the extracted E-05 module SDK.
+Goals G-3(real), G-4, G-5. Risks TR-6, TR-1(residual). ADR-0008.
 
 ---
 

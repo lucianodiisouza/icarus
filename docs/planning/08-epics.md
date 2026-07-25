@@ -73,6 +73,32 @@ IDs kept where they still carry meaning.
 > M1 is also where we **earn our abstractions from real features** (rule of three,
 > ADR-0009): the module SDK and the IPC streaming primitive are built *here*, driven by
 > `metro`/`devices`/`logs`, not speculatively in M0.
+>
+> **Updated 2026-07-25 after the CDP spike.** The transport is now **decided and proven**
+> ([ADR-0008](../adr/ADR-0008-debugger-protocol-cdp.md) Accepted): Origin-authenticated
+> CDP through Metro's inspector proxy. The spike also promoted two things from "unknown"
+> to **concrete M1 components** — a **CDP transport / `ProtocolClient`** (new **E-14**) and
+> a **multiplexing proxy** — and confirmed **console + Network are CDP-native** (RN ≥ 0.76),
+> which sharpens E-10. The spike's hardened client (Origin header, request timeouts,
+> target selection) is a **head start**, not a throwaway.
+
+### E-14 — CDP transport & multiplexing proxy (`ProtocolClient`)  *(new — from the spike)*
+- **Goal:** Productionize the spike's disposable client into the Core `ProtocolClients`
+  slot: discover targets (`/json/list`), connect with the **`Origin` CSRF header**, select
+  the **main JS runtime**, time out unresponsive targets, and front the single Hermes
+  connection with a **multiplexing proxy** so Icarus coexists with the user's RN DevTools.
+- **Scope:** target discovery + selection, Origin-authed CDP connect, request/event plumbing
+  with timeouts, reconnect across app-reload/Metro-restart (**C3**, untested in the spike),
+  the multiplexing proxy. **Out:** the in-app bridge (Heap/RN-semantics — see M3+/OQ-22).
+- **Depends on:** E-04 Core `ProtocolClients` slot; E-08 (a running Metro to talk to).
+- **Key risk:** `dev-middleware` Origin/allowlist drift across RN versions (OQ-21); proxy
+  latency/large-payload framing (react-native#56471); version sensitivity (Network needs
+  RN ≥ 0.76 — detect & degrade).
+- **Open questions:** OQ-21 (mirror/track Origin allowlist; proxy placement); C3 reconnect
+  behavior; Android via `adb` (untested in spike).
+- **DoD sketch:** connects to a real app as a third party (Origin-authed), survives
+  reload/Metro-restart, and the multiplexing proxy lets RN DevTools + Icarus run together.
+  Reproduces the spike's evidence as tested, maintained code.
 
 ### E-05 — Feature-module contract + conformance kit *(extracted, not invented)*
 - **Goal:** Define `FeatureModule` / `ModuleContext` (ADR-0007) **extracted from the real
@@ -104,12 +130,15 @@ IDs kept where they still carry meaning.
 - **Goal:** Detect an RN/Expo project and start/stop/observe Metro via `ProcessManager`.
 - **Scope:** project detection (bare RN + Expo — per locked decision), Metro launch/ready
   probe/stop, surfacing Metro status. **Out:** bundling internals, custom Metro config UI.
-- **Depends on:** E-06 (ProcessManager), **E-Spike-CDP outcome** (informs how/whether we
-  attach), and the extracted E-05 contract once it exists.
-- **Key risk:** Expo vs bare RN launch differences (OQ-20); Metro version drift.
-- **Open questions:** OQ-3/OQ-20 (project-setup variance).
-- **DoD sketch:** starts Metro on a real project of each type; ready detection works;
-  clean stop (no orphans, via E-06).
+- **Depends on:** E-06 (ProcessManager); feeds **E-14** the Metro endpoint to attach to.
+  Uses the extracted E-05 contract once it exists.
+- **Key risk:** Expo vs bare RN launch differences (spike showed the CDP surface is
+  identical across clients — differences are RN *version*, not client); Metro port
+  discovery (8081 / 8082+ / Expo 19000–19002, confirmed in the spike).
+- **Open questions:** largely resolved — OQ-20 answered (client-agnostic); residual is
+  version detection (Network needs RN ≥ 0.76).
+- **DoD sketch:** starts Metro on a real bare-RN and Expo project; ready detection works;
+  clean stop (no orphans, via E-06); exposes the discovered inspector target to E-14.
 
 ### E-09 — Device / simulator management (`devices` module)
 - **Goal:** Discover and launch iOS simulators / Android emulators; represent them under
@@ -125,13 +154,17 @@ IDs kept where they still carry meaning.
 ### E-10 — Unified log pipeline (`logs` module)
 - **Goal:** Normalize Metro + native (logcat / iOS syslog) + app console logs into typed
   `DebugContextStore` slices; stream to the UI (via E-03s).
-- **Scope:** capture from Metro (E-08) + native sources (E-09) + console (CDP, if spike
-  GO), normalize to a common log record, write store slices. **Out:** advanced analytics.
-- **Depends on:** E-08, E-09, E-03s, and (for console-over-CDP) the spike verdict.
+- **Scope:** capture from Metro (E-08) + native sources (E-09) + **app console via CDP
+  `Runtime.consoleAPICalled`** (proven in the spike — through E-14), normalize to a common
+  log record, write store slices. **Out:** advanced analytics.
+- **Depends on:** E-08, E-09, E-03s, and **E-14** (console over CDP).
 - **Key risk:** TR-6 volume; source-format variance; ordering/interleaving.
 - **Open questions:** OQ-9 (persist logs to disk? — informal probe here for A-4).
 - **DoD sketch:** unified stream with the three sources; typed store slices; feeds the UI
   without jank.
+- **Bonus unlocked by the spike:** **Network is CDP-native on RN ≥ 0.76** (request/response
+  events proven). A thin **network capture** can piggyback on E-14 here or seed the first
+  M3+ network-inspection epic — the plumbing is the same CDP subscription.
 
 ### E-11 — Log UI (search, filter, virtualized)
 - **Goal:** The first real user-facing view (G-5): searchable, filterable, virtualized log
