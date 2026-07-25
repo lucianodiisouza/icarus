@@ -41,6 +41,10 @@ export const CHANNELS = {
   DEVICES_INSTALL: 'command:devices.install',
   /** Command: launch an installed app on a simulator (E-09). */
   DEVICES_LAUNCH: 'command:devices.launch',
+  /** Query: get the current auto-attach enabled flag (TD-16). */
+  AUTO_ATTACH_GET: 'query:autoAttach.get',
+  /** Command: set the auto-attach enabled flag. */
+  AUTO_ATTACH_SET: 'command:autoAttach.set',
 } as const;
 
 export type ChannelName = (typeof CHANNELS)[keyof typeof CHANNELS];
@@ -145,3 +149,15 @@ export type DevicesLaunchInput = z.infer<typeof devicesLaunchInputSchema>;
 export interface DevicesLaunchOutput {
   readonly pid: string;
 }
+
+// --- query:autoAttach.get / command:autoAttach.set (TD-16) ---
+export const autoAttachGetInputSchema = z.void();
+export interface AutoAttachStatus {
+  readonly enabled: boolean;
+  /** Set when the user explicitly clicks Disconnect on CDP; resets on enable. */
+  readonly userDisconnected: boolean;
+}
+export const autoAttachSetInputSchema = z.object({
+  enabled: z.boolean(),
+});
+export type AutoAttachSetInput = z.infer<typeof autoAttachSetInputSchema>;
