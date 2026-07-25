@@ -32,6 +32,9 @@ const LEVEL_COLOR: Record<string, string> = {
   log: '#24292f',
 };
 
+const VIRT_ITEM_HEIGHT = 18; // px per row in the virtualized log list
+const VIRT_OVERSCAN = 8; // extra rows above/below the visible window
+
 const MAX_LOGS = 500;
 const MAX_NETWORK = 200;
 const MAX_METRO = 200;
@@ -375,74 +378,207 @@ const inputStyle = {
 
 function UnifiedLogSection(): ReactElement {
   const [entries, setEntries] = useState<(UnifiedLogEntryOut & { key: number })[]>([]);
-  const [filter, setFilter] = useState<Array<'cdp' | 'native' | 'metro'>>([
-    'cdp',
-    'native',
-    'metro',
-  ]);
+  const [textQuery, setTextQuery] = useState<string>('');
+  const [sourceFilter, setSourceFilter] = useState<Set<UnifiedLogEntryOut['source']>>(
+    new Set(['cdp', 'native', 'metro']),
+  );
+  const [levelFilter, setLevelFilter] = useState<Set<UnifiedLogEntryOut['level']>>(
+    new Set(['log', 'info', 'warn', 'error', 'debug']),
+  );
   const keyRef = useRef(0);
   const listRef = useRef<HTMLDivElement>(null);
+  const [scrollTop, setScrollTop] = useState(0);
+  const [containerHeight, setContainerHeight] = useState(280);
 
   useEffect(() => {
     const off = window.icarus.onUnifiedLog((entry) => {
       setEntries((prev) => {
         const next = [...prev, { ...entry, key: keyRef.current++ }];
-        return next.length > 800 ? next.slice(next.length - 800) : next;
+        return next.length > 2000 ? next.slice(next.length - 2000) : next;
       });
     });
     return off;
   }, []);
 
   useEffect(() => {
-    listRef.current?.scrollTo({ top: listRef.current.scrollHeight });
-  }, [entries]);
+    const el = listRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => setContainerHeight(el.clientHeight));
+    ro.observe(el);
+    setContainerHeight(el.clientHeight);
+    return () => ro.disconnect();
+  }, []);
 
-  const visible = entries.filter((e) => filter.includes(e.source));
+  const visible = filterUnifiedLog(entries, textQuery, sourceFilter, levelFilter);
 
-  const toggle = (s: 'cdp' | 'native' | 'metro'): void => {
-    setFilter((prev) => (prev.includes(s) ? prev.filter((x) => x !== s) : [...prev, s]));
-  };
+  // Auto-scroll to bottom when new entries arrive, unless the user has scrolled up.
+  useEffect(() => {
+    const el = listRef.current;
+    if (!el) return;
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    if (distanceFromBottom < VIRT_ITEM_HEIGHT * 3) {
+      el.scrollTop = el.scrollHeight;
+    }
+  }, [visible.length]);
+
+  // Virtualization: only render the rows in the visible window (+ overscan). The
+  // total scroll height is preserved by top + bottom spacers.
+  const total = visible.length;
+  const startIdx = Math.max(0, Math.floor(scrollTop / VIRT_ITEM_HEIGHT) - VIRT_OVERSCAN);
+  const endIdx = Math.min(
+    total,
+    Math.ceil((scrollTop + containerHeight) / VIRT_ITEM_HEIGHT) + VIRT_OVERSCAN,
+  );
+  const windowEntries = visible.slice(startIdx, endIdx);
+  const topPad = startIdx * VIRT_ITEM_HEIGHT;
+  const bottomPad = Math.max(0, (total - endIdx) * VIRT_ITEM_HEIGHT);
 
   return (
     <section>
-      <h2 style={{ fontSize: 16 }}>Unified app log (E-10)</h2>
+      <h2 style={{ fontSize: 16 }}>Unified app log (E-10 · virtualized in E-11)</h2>
       <p style={{ color: '#57606a', marginTop: 0, fontSize: 13 }}>
-        One stream for app console (CDP), Metro dev-server output, and native simulator logs.
+        Search + filter the live stream of app console, Metro output, and simulator logs.
       </p>
-      <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+      <div
+        style={{ display: 'flex', gap: 8, marginBottom: 8, flexWrap: 'wrap', alignItems: 'center' }}
+      >
+        <input
+          type="text"
+          value={textQuery}
+          onChange={(e) => setTextQuery(e.target.value)}
+          placeholder="search…"
+          style={{
+            padding: '4px 8px',
+            fontSize: 12,
+            border: '1px solid #d0d7de',
+            borderRadius: 4,
+            minWidth: 160,
+          }}
+        />
         {(['cdp', 'native', 'metro'] as const).map((s) => (
-          <label key={s} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12 }}>
-            <input type="checkbox" checked={filter.includes(s)} onChange={() => toggle(s)} />
-            {s}
-          </label>
+          <FilterChip
+            key={s}
+            label={s}
+            active={sourceFilter.has(s)}
+            onToggle={() => toggleSource(sourceFilter, setSourceFilter, s)}
+          />
         ))}
+        <span style={{ borderLeft: '1px solid #d0d7de', paddingLeft: 8, display: 'flex', gap: 4 }}>
+          {(['error', 'warn', 'info', 'debug', 'log'] as const).map((l) => {
+            const color = LEVEL_COLOR[l];
+            return (
+              <FilterChip
+                key={l}
+                label={l}
+                active={levelFilter.has(l)}
+                onToggle={() => toggleLevel(levelFilter, setLevelFilter, l)}
+                {...(color !== undefined ? { color } : {})}
+              />
+            );
+          })}
+        </span>
         <span style={{ color: '#8c959f', fontSize: 12, marginLeft: 'auto' }}>
-          {visible.length} / {entries.length}
+          {visible.length} / {entries.length} (rendering {windowEntries.length})
         </span>
       </div>
       <div
         ref={listRef}
+        onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}
         style={{
-          height: 240,
+          height: 280,
           overflowY: 'auto',
           border: '1px solid #eaeef2',
           borderRadius: 6,
-          padding: 8,
+          padding: 0,
           fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
           fontSize: 12,
           background: '#f6f8fa',
         }}
       >
-        {visible.length === 0 ? (
+        {total === 0 ? (
           <p style={{ color: '#8c959f', margin: 8 }}>
-            No entries yet. Connect to a running app (CDP) or start Metro to see logs here.
+            No entries match. Start Metro, connect CDP, or boot a sim.
           </p>
         ) : (
-          visible.map((e) => <UnifiedRow key={e.key} entry={e} />)
+          <>
+            <div style={{ height: topPad }} />
+            {windowEntries.map((e) => (
+              <UnifiedRow key={e.key} entry={e} />
+            ))}
+            <div style={{ height: bottomPad }} />
+          </>
         )}
       </div>
     </section>
   );
+}
+
+function FilterChip({
+  label,
+  active,
+  onToggle,
+  color,
+}: {
+  label: string;
+  active: boolean;
+  onToggle: () => void;
+  color?: string;
+}): ReactElement {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      style={{
+        padding: '2px 8px',
+        fontSize: 11,
+        fontWeight: 600,
+        border: `1px solid ${active ? (color ?? '#0969da') : '#d0d7de'}`,
+        borderRadius: 12,
+        background: active ? (color ?? '#0969da') : 'transparent',
+        color: active ? '#fff' : '#57606a',
+        cursor: 'pointer',
+      }}
+    >
+      {label}
+    </button>
+  );
+}
+
+function toggleSource(
+  current: Set<UnifiedLogEntryOut['source']>,
+  set: (s: Set<UnifiedLogEntryOut['source']>) => void,
+  s: UnifiedLogEntryOut['source'],
+): void {
+  const next = new Set(current);
+  if (next.has(s)) next.delete(s);
+  else next.add(s);
+  set(next);
+}
+
+function toggleLevel(
+  current: Set<UnifiedLogEntryOut['level']>,
+  set: (s: Set<UnifiedLogEntryOut['level']>) => void,
+  l: UnifiedLogEntryOut['level'],
+): void {
+  const next = new Set(current);
+  if (next.has(l)) next.delete(l);
+  else next.add(l);
+  set(next);
+}
+
+function filterUnifiedLog(
+  entries: readonly (UnifiedLogEntryOut & { key: number })[],
+  text: string,
+  sources: Set<UnifiedLogEntryOut['source']>,
+  levels: Set<UnifiedLogEntryOut['level']>,
+): (UnifiedLogEntryOut & { key: number })[] {
+  const q = text.toLowerCase();
+  return entries.filter((e) => {
+    if (sources.size > 0 && !sources.has(e.source)) return false;
+    if (levels.size > 0 && !levels.has(e.level)) return false;
+    if (q && !e.text.toLowerCase().includes(q)) return false;
+    return true;
+  });
 }
 
 const SOURCE_COLOR: Record<string, string> = {
