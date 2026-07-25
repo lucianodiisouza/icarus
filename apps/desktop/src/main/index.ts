@@ -77,10 +77,10 @@ const unified = new UnifiedLogController();
  * module is one line of `registry.register(...)` and the lifecycle, cleanup
  * trail, and module-id-prefixed logging are all handled automatically.
  *
- * The renderer still subscribes to the existing per-module IPC channels
- * (window.icarus.onMetroLog, etc.) — those are imperative and aren't part
- * of the registry's job. The registry is the lifecycle side; the IPC surface
- * is unchanged.
+ * The registry also drives the renderer IPC: `bindRegistryToWindow` (TD-15)
+ * iterates the registered modules and auto-wires each one's declared events to
+ * the window over the generic `module.{id}.event.{name}` channels — so adding a
+ * module needs no per-channel wiring here.
  */
 const registry = new ModuleRegistry();
 registry.register(createMetroModule(metro), { processes });
