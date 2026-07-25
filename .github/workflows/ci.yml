@@ -56,3 +56,41 @@ jobs:
       - name: Build (bundles main/preload/renderer)
         if: '!cancelled()'
         run: pnpm -r build
+
+  e2e:
+    name: e2e (Electron smoke — app launch + doctor round-trip)
+    # A separate job because it needs the real Electron binary (the `verify` job
+    # skips the download) and a virtual display. First display-enabled job in CI
+    # (TD-07); pays down the "app-launch unverified in CI" gap.
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install (with Electron binary)
+        # NOTE: unlike `verify`, do NOT set ELECTRON_SKIP_BINARY_DOWNLOAD — the E2E
+        # tests launch the real binary. `electron` is in `onlyBuiltDependencies`, so
+        # its postinstall fetches the platform binary here.
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Electron/Chromium system libs + xvfb
+        # Playwright's dep installer pulls the shared libraries Electron's Chromium
+        # needs (libnss3, libgbm, libatk, …) plus xvfb — maintained across Ubuntu
+        # versions, so we don't hand-maintain an apt list.
+        run: pnpm --filter @icarus/desktop exec playwright install-deps
+
+      - name: Build (bundles main/preload/renderer)
+        run: pnpm -r build
+
+      - name: E2E (Electron under xvfb)
+        # xvfb-run gives the headless runner a virtual X display for the window.
+        run: xvfb-run -a pnpm --filter @icarus/desktop test:e2e
