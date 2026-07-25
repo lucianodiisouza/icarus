@@ -17,6 +17,8 @@ import type {
   DevicesInstallInput,
   DevicesLaunchInput,
   DevicesListOutput,
+  UnifiedLogSnapshot,
+  UnifiedLogDeltaOut,
 } from './contracts.js';
 
 export type Unsubscribe = () => void;
@@ -71,6 +73,18 @@ export interface IcarusApi {
     eventName: string,
     handler: (envelope: { timestampMs: number; payload: T }) => void,
   ): Unsubscribe;
+
+  /**
+   * Subscribe to the unified log as a snapshot + batched deltas (E-03s, ADR-0006).
+   * Resolves with the current recent-history snapshot and starts delivering
+   * batched append-deltas via `onUnifiedLogDelta`. Replaces the old per-entry
+   * push so a high-rate stream can't jank the UI (TR-6).
+   */
+  unifiedLogSubscribe(): Promise<UnifiedLogSnapshot>;
+  /** Stop the unified-log subscription for this window. */
+  unifiedLogUnsubscribe(): Promise<void>;
+  /** Receive batched append-deltas for the unified log. Returns an unsubscribe. */
+  onUnifiedLogDelta(handler: (delta: UnifiedLogDeltaOut) => void): Unsubscribe;
 
   /** Get the current auto-attach status (TD-16). */
   autoAttachGet(): Promise<AutoAttachStatus>;

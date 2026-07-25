@@ -13,7 +13,7 @@ Status: 🟥 active · 🟨 mitigated · 🟩 paid down.
 | TD-02 | **Electron footprint/memory** unoptimized | Stay in Node ecosystem; footprint is a non-goal now (NG-8) | Could become an adoption blocker | Real user feedback sets a threshold (OQ-11) | 🟥 planned |
 | TD-03 | No **Turborepo** build cache | Premature at ~5 packages (ADR-0001) | Slower CI as packages grow | Cold build > 60s or > 12 packages | 🟥 monitored |
 | TD-04 | CI runs on **ubuntu-latest only** (not macOS/matrix) | No iOS/native tooling yet; ubuntu is fast/cheap (Doc 15) | macOS/Windows-specific regressions unnoticed | When device tooling (simctl/adb) lands, or Win/Linux become committed targets | 🟥 accepted |
-| TD-05 | **Delta representation** for store→UI not finalized | Needs a real streaming feature to choose well (OQ-13) | Rework of the subscription path later | First streaming feature (M1 logs) | 🟥 planned |
+| TD-05 | **Delta representation** for store→UI not finalized | Needs a real streaming feature to choose well (OQ-13) | Rework of the subscription path later | First streaming feature (M1 logs) | 🟩 **resolved 2026-07-25**: E-03s shipped the snapshot+delta subscription (`StreamBatcher` + `RingBuffer` + `UnifiedLogStream`, ADR-0006). OQ-13 resolved to **domain append-deltas** (`{ appended }`) — the log is append-only. The unified log now flows renderer via `SUBSCRIPTIONS.UNIFIED_LOG` (snapshot) + `EVENTS.UNIFIED_LOG_DELTA` (60ms-batched), replacing the per-entry push. TR-6 load test proves 100k entries → bounded flush count, no data loss. +17 core tests + 1 E2E. |
 
 ## Epic 1 (Walking Skeleton) retrospective — 2026-07-25
 

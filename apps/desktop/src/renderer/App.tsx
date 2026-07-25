@@ -393,17 +393,30 @@ function UnifiedLogSection(): ReactElement {
   const [containerHeight, setContainerHeight] = useState(280);
 
   useEffect(() => {
-    const off = window.icarus.onModuleEvent<UnifiedLogEntryOut>(
-      'unified-log',
-      'log',
-      ({ payload: entry }) => {
-        setEntries((prev) => {
-          const next = [...prev, { ...entry, key: keyRef.current++ }];
-          return next.length > 2000 ? next.slice(next.length - 2000) : next;
-        });
-      },
-    );
-    return off;
+    // E-03s subscription: apply the initial snapshot, then batched append-deltas.
+    // One React update per BATCH (not per entry) is what keeps the UI responsive
+    // under a high-rate log stream (TR-6).
+    let cancelled = false;
+    const append = (
+      prev: (UnifiedLogEntryOut & { key: number })[],
+      entries: readonly UnifiedLogEntryOut[],
+    ): (UnifiedLogEntryOut & { key: number })[] => {
+      const next = [...prev];
+      for (const entry of entries) next.push({ ...entry, key: keyRef.current++ });
+      return next.length > 2000 ? next.slice(next.length - 2000) : next;
+    };
+    const offDelta = window.icarus.onUnifiedLogDelta((delta) => {
+      setEntries((prev) => append(prev, delta.appended));
+    });
+    void window.icarus.unifiedLogSubscribe().then((snapshot) => {
+      if (cancelled) return;
+      setEntries(snapshot.map((entry) => ({ ...entry, key: keyRef.current++ })));
+    });
+    return () => {
+      cancelled = true;
+      offDelta();
+      void window.icarus.unifiedLogUnsubscribe();
+    };
   }, []);
 
   useEffect(() => {

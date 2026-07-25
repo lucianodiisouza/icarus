@@ -101,6 +101,17 @@ export type {
 } from './unified-log/unified-log.js';
 export type { UnifiedEntryHandler } from './unified-log/unified-log-controller.js';
 
+// Streaming primitive (E-03s, ADR-0006): snapshot + batched deltas with backpressure.
+export { StreamBatcher } from './streaming/stream-batcher.js';
+export type { StreamBatcherOptions } from './streaming/stream-batcher.js';
+export { RingBuffer } from './streaming/ring-buffer.js';
+export { UnifiedLogStream } from './streaming/unified-log-stream.js';
+export type {
+  UnifiedLogDelta,
+  LogEntrySource,
+  UnifiedLogStreamOptions,
+} from './streaming/unified-log-stream.js';
+
 // iOS syslog (E-10 native source)
 export {
   IosSyslogSource,
