@@ -46,7 +46,7 @@ export interface ModuleContext {
 }
 
 /** Base shape every module must satisfy. Parameterized over the event map. */
-export interface FeatureModule<Events extends Record<string, unknown> = Record<string, never>> {
+export interface FeatureModule<Events extends Record<string, unknown> = Record<string, unknown>> {
   /** Stable, unique, kebab-case id (e.g. 'metro', 'devices', 'logs'). */
   readonly id: string;
   /** Human-readable name for the UI. */

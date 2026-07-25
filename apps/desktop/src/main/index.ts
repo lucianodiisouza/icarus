@@ -3,9 +3,13 @@ import { dirname, join } from 'node:path';
 import { app, BrowserWindow, ipcMain, session } from 'electron';
 import {
   CdpClient,
+  createDevicesModule,
+  createMetroModule,
+  createUnifiedLogModule,
   DevicesController,
   discoverProxies,
   MetroController,
+  ModuleRegistry,
   ProcessManager,
   UnifiedLogController,
 } from '@icarus/core';
@@ -60,12 +64,34 @@ const devices = new DevicesController({ processes });
  */
 const unified = new UnifiedLogController();
 
+/**
+ * The single ModuleRegistry (TD-15, E-05 follow-up). Owns the lifecycle of
+ * every FeatureModule in the app. Each module's `init(ctx)` is called on
+ * registration; `disposeAll()` runs on app exit (wired below). The 3 existing
+ * modules (Metro, Devices, UnifiedLog) are registered here — adding a new
+ * module is one line of `registry.register(...)` and the lifecycle, cleanup
+ * trail, and module-id-prefixed logging are all handled automatically.
+ *
+ * The renderer still subscribes to the existing per-module IPC channels
+ * (window.icarus.onMetroLog, etc.) — those are imperative and aren't part
+ * of the registry's job. The registry is the lifecycle side; the IPC surface
+ * is unchanged.
+ */
+const registry = new ModuleRegistry();
+registry.register(createMetroModule(metro), { processes });
+registry.register(createDevicesModule(), { processes });
+registry.register(createUnifiedLogModule(unified), { processes });
+
 function wireProcessTeardown(): void {
   app.on('will-quit', () => {
-    void processes.disposeAll();
+    // Dispose the module registry first (releases per-module subscriptions),
+    // then the ProcessManager (kills any live child processes). The order
+    // matters: a module might still be holding a reference to a process when
+    // we tear it down.
+    void registry.disposeAll().finally(() => processes.disposeAll());
   });
   const onSignal = (): void => {
-    void processes.disposeAll().finally(() => process.exit(0));
+    void registry.disposeAll().finally(() => processes.disposeAll().finally(() => process.exit(0)));
   };
   process.once('SIGINT', onSignal);
   process.once('SIGTERM', onSignal);
