@@ -8,6 +8,7 @@ const STATUS_COLOR: Record<string, string> = {
   error: '#cf222e',
   connected: '#1a7f37',
   connecting: '#9a6700',
+  reconnecting: '#9a6700',
   disconnected: '#57606a',
 };
 
@@ -112,7 +113,7 @@ function LiveLogsSection(): ReactElement {
   }, [logs]);
 
   const connected = status === 'connected';
-  const busy = status === 'connecting';
+  const busy = status === 'connecting' || status === 'reconnecting';
 
   return (
     <section>
@@ -124,7 +125,11 @@ function LiveLogsSection(): ReactElement {
           disabled={connected || busy}
           style={btnStyle}
         >
-          {busy ? 'Connecting…' : 'Connect'}
+          {status === 'connecting'
+            ? 'Connecting…'
+            : status === 'reconnecting'
+              ? 'Reconnecting…'
+              : 'Connect'}
         </button>
         <button
           type="button"

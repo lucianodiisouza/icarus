@@ -155,4 +155,61 @@ describe('CdpClient', () => {
     socket.close();
     await expect(p).rejects.toThrow(/closed/);
   });
+
+  it('onClose fires once when the socket closes, with the close reason', () => {
+    const { socket, client } = setup();
+    void client.connect();
+    socket.emitOpen();
+
+    const seen: Error[] = [];
+    client.onClose((reason) => seen.push(reason));
+    socket.close();
+
+    expect(seen).toHaveLength(1);
+    expect(seen[0]?.message).toMatch(/closed/);
+  });
+
+  it('onClose fires exactly once even on subsequent sends / close calls', async () => {
+    const { socket, client } = setup();
+    void client.connect();
+    socket.emitOpen();
+
+    let count = 0;
+    client.onClose(() => count++);
+    socket.close();
+    // A second close is a no-op (the socket is already gone), and the handler should not
+    // be called again — the client is in a terminal state.
+    client.close();
+    await expect(client.send('Runtime.enable')).rejects.toThrow();
+
+    expect(count).toBe(1);
+  });
+
+  it('onClose handlers are isolated — a throwing handler does not skip siblings', () => {
+    const { socket, client } = setup();
+    void client.connect();
+    socket.emitOpen();
+
+    const seen: string[] = [];
+    client.onClose(() => {
+      throw new Error('boom');
+    });
+    client.onClose((reason) => seen.push(reason.message));
+    socket.close();
+
+    expect(seen).toHaveLength(1);
+  });
+
+  it('onClose unsubscribe stops further delivery', () => {
+    const { socket, client } = setup();
+    void client.connect();
+    socket.emitOpen();
+
+    let calls = 0;
+    const off = client.onClose(() => calls++);
+    off();
+    socket.close();
+
+    expect(calls).toBe(0);
+  });
 });
