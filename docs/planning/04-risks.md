@@ -44,20 +44,21 @@ Likelihood/Impact scale: **L** low, **M** medium, **H** high.
 ## Technical risks
 
 ### TR-1 — Driving the CDP inspector as a third party is harder than assumed
-- **L×I:** ~~H × H~~ → **downgraded to L–M × H** (2026-07-25, after research).
-- Our vision leans on speaking CDP to Hermes via Metro's inspector proxy. **Web research
-  found working prior art** (`@react-native/dev-middleware`, `metro-mcp`) doing exactly
-  this as a third party with no app changes for Console/Network/Runtime/Heap/Debugger —
-  so raw feasibility is now largely _confirmed_, dropping likelihood. Impact stays High
-  because the vision still depends on it. Two residual edges: (a) Hermes' **single-CDP-
-  connection** limit forces a **multiplexing proxy** for DevTools coexistence (proven
-  pattern, but real work); (b) RN-semantic features (component tree, navigation, state)
-  need an **in-app bridge**, making the real design a **hybrid** (see updated
-  [ADR-0008](../adr/ADR-0008-debugger-protocol-cdp.md)).
-- **Mitigation:** the **M0 spike (E-Spike-CDP)** now _confirms on our versions,
-  builds/measures the multiplexing proxy, and pins the CDP-vs-bridge line_ rather than
-  discovering feasibility. Still a gate, but a hard no-go now looks unlikely. See the
-  [CDP Spike Plan](../engineering/19-cdp-spike-plan.md).
+- **L×I:** ~~H × H~~ → **L × M** — **largely retired** by the M0 spike (2026-07-25).
+- **Resolved by the spike** ([report](../engineering/reports/cdp-spike-report.md)):
+  third-party CDP via Metro's inspector proxy **works live** across four real apps, with
+  zero app changes, for Runtime/Log/Debugger/Console and **Network on RN ≥ 0.76**. The one
+  scary blocker (a 401 on modern RN) was a standard **Origin CSRF check**, solved with an
+  `Origin: http://localhost:<port>` header (sanctioned, not a bypass).
+- **Residual (now bounded, not existential):**
+  - Coexistence needs a **multiplexing proxy** (Hermes = one connection) — real M1 work,
+    proven necessary.
+  - **HeapProfiler/Profiler and RN-semantics** need an **in-app bridge** (hybrid) — see
+    [ADR-0008](../adr/ADR-0008-debugger-protocol-cdp.md).
+  - **Version sensitivity** (Network needs RN ≥ 0.76) and **`dev-middleware` Origin
+    allowlist drift** (OQ-21) must be tracked; **target selection + timeouts** are
+    required (secondary runtimes like Reanimated are unresponsive).
+- These residuals are ordinary engineering carried into M1, not a go/no-go risk.
 
 ### TR-2 — Child-process lifecycle correctness across OSes
 - **L×I:** M × H
