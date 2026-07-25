@@ -12,7 +12,11 @@ import { createMetroModule, type MetroStatusSnapshot } from './metro-module.js';
 function makeFakeController(): {
   controller: MetroController;
   fireStatus: () => void;
-  set: (state: { status: MetroStatus; port: number | null; project: DetectedProject | null }) => void;
+  set: (state: {
+    status: MetroStatus;
+    port: number | null;
+    project: DetectedProject | null;
+  }) => void;
 } {
   let statusHandler: (() => void) | null = null;
   const state = {
