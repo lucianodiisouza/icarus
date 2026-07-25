@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Cancel superseded runs on the same ref to keep the pipeline fast (G-8).
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: verify (typecheck · lint · format · test · build)
+    # ubuntu is fast/cheap and enough while there is no iOS/native tooling yet.
+    # macOS runners are added when device tooling (simctl/adb) lands (NG-7 / Doc 15).
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install (frozen lockfile)
+        run: pnpm install --frozen-lockfile
+
+      # Independent checks — run them all even if an earlier one fails, so a PR shows
+      # every problem at once.
+      - name: Typecheck
+        if: '!cancelled()'
+        run: pnpm -r typecheck
+
+      - name: Lint (incl. no-electron-in-core boundary rule)
+        if: '!cancelled()'
+        run: pnpm lint
+
+      - name: Format check
+        if: '!cancelled()'
+        run: pnpm format:check
+
+      - name: Test
+        if: '!cancelled()'
+        run: pnpm -r test
+
+      - name: Build (bundles main/preload/renderer)
+        if: '!cancelled()'
+        run: pnpm -r build
