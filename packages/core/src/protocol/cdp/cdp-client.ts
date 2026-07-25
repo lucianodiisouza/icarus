@@ -35,6 +35,7 @@ export class CdpClient {
   readonly #socket: CdpSocket;
   readonly #pending = new Map<number, Pending>();
   readonly #events = new EventBus<Record<string, unknown>>();
+  readonly #closeHandlers = new Set<(reason: Error) => void>();
   #nextId = 1;
   #closed = false;
 
@@ -100,6 +101,18 @@ export class CdpClient {
     return this.#events.on(method, handler);
   }
 
+  /**
+   * Subscribe to the underlying socket close. Fires once with the close reason (any further
+   * `send` will reject). Use this to drive reconnect at the session level — E-14 slice 4
+   * (auto-reconnect across app reload / Metro restart).
+   */
+  onClose(handler: (reason: Error) => void): Unsubscribe {
+    this.#closeHandlers.add(handler);
+    return () => {
+      this.#closeHandlers.delete(handler);
+    };
+  }
+
   close(): void {
     if (this.#closed) return;
     this.#socket.close();
@@ -142,6 +155,18 @@ export class CdpClient {
       pending.reject(error);
     }
     this.#pending.clear();
+    // Snapshot then clear, so an unsubscribing handler doesn't skip siblings.
+    const handlers = [...this.#closeHandlers];
+    this.#closeHandlers.clear();
+    for (const handler of handlers) {
+      try {
+        handler(error);
+      } catch {
+        // A throwing close handler must not prevent the others from running. Errors are
+        // intentionally swallowed here — the socket is gone, there's nowhere useful to send
+        // them. Surfaces loudly only if a handler's call site chooses to.
+      }
+    }
   }
 }
 

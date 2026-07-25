@@ -34,7 +34,8 @@ export const EVENTS = {
   CDP_STATUS: 'event:cdp.status',
 } as const;
 
-export type CdpConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
+export type CdpConnectionStatus =
+  'disconnected' | 'connecting' | 'reconnecting' | 'connected' | 'error';
 
 export type CdpLogEvent = CdpConsoleEntry;
 export interface CdpStatusEvent {
