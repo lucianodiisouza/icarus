@@ -10,6 +10,7 @@ import type {
   MetroStatusEvent,
   ProjectKind,
   SimDevice,
+  UnifiedLogEntryOut,
 } from '../shared/ipc/contracts.js';
 
 const STATUS_COLOR: Record<string, string> = {
@@ -27,6 +28,8 @@ const LEVEL_COLOR: Record<string, string> = {
   warning: '#9a6700',
   warn: '#9a6700',
   info: '#0969da',
+  debug: '#8c959f',
+  log: '#24292f',
 };
 
 const MAX_LOGS = 500;
@@ -65,6 +68,8 @@ export function App(): ReactElement {
       <MetroSection />
       <hr style={{ margin: '28px 0', border: 0, borderTop: '1px solid #eaeef2' }} />
       <DevicesSection />
+      <hr style={{ margin: '28px 0', border: 0, borderTop: '1px solid #eaeef2' }} />
+      <UnifiedLogSection />
       <hr style={{ margin: '28px 0', border: 0, borderTop: '1px solid #eaeef2' }} />
       <LiveLogsSection />
       <hr style={{ margin: '28px 0', border: 0, borderTop: '1px solid #eaeef2' }} />
@@ -367,6 +372,96 @@ const inputStyle = {
   border: '1px solid #d0d7de',
   borderRadius: 6,
 } as const;
+
+function UnifiedLogSection(): ReactElement {
+  const [entries, setEntries] = useState<(UnifiedLogEntryOut & { key: number })[]>([]);
+  const [filter, setFilter] = useState<Array<'cdp' | 'native' | 'metro'>>([
+    'cdp',
+    'native',
+    'metro',
+  ]);
+  const keyRef = useRef(0);
+  const listRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const off = window.icarus.onUnifiedLog((entry) => {
+      setEntries((prev) => {
+        const next = [...prev, { ...entry, key: keyRef.current++ }];
+        return next.length > 800 ? next.slice(next.length - 800) : next;
+      });
+    });
+    return off;
+  }, []);
+
+  useEffect(() => {
+    listRef.current?.scrollTo({ top: listRef.current.scrollHeight });
+  }, [entries]);
+
+  const visible = entries.filter((e) => filter.includes(e.source));
+
+  const toggle = (s: 'cdp' | 'native' | 'metro'): void => {
+    setFilter((prev) => (prev.includes(s) ? prev.filter((x) => x !== s) : [...prev, s]));
+  };
+
+  return (
+    <section>
+      <h2 style={{ fontSize: 16 }}>Unified app log (E-10)</h2>
+      <p style={{ color: '#57606a', marginTop: 0, fontSize: 13 }}>
+        One stream for app console (CDP), Metro dev-server output, and native simulator logs.
+      </p>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+        {(['cdp', 'native', 'metro'] as const).map((s) => (
+          <label key={s} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12 }}>
+            <input type="checkbox" checked={filter.includes(s)} onChange={() => toggle(s)} />
+            {s}
+          </label>
+        ))}
+        <span style={{ color: '#8c959f', fontSize: 12, marginLeft: 'auto' }}>
+          {visible.length} / {entries.length}
+        </span>
+      </div>
+      <div
+        ref={listRef}
+        style={{
+          height: 240,
+          overflowY: 'auto',
+          border: '1px solid #eaeef2',
+          borderRadius: 6,
+          padding: 8,
+          fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+          fontSize: 12,
+          background: '#f6f8fa',
+        }}
+      >
+        {visible.length === 0 ? (
+          <p style={{ color: '#8c959f', margin: 8 }}>
+            No entries yet. Connect to a running app (CDP) or start Metro to see logs here.
+          </p>
+        ) : (
+          visible.map((e) => <UnifiedRow key={e.key} entry={e} />)
+        )}
+      </div>
+    </section>
+  );
+}
+
+const SOURCE_COLOR: Record<string, string> = {
+  cdp: '#0969da',
+  native: '#bf3989',
+  metro: '#9a6700',
+};
+
+function UnifiedRow({ entry }: { entry: UnifiedLogEntryOut }): ReactElement {
+  return (
+    <div style={{ padding: '1px 0', whiteSpace: 'pre-wrap' }}>
+      <span style={{ color: SOURCE_COLOR[entry.source] ?? '#57606a', fontWeight: 600 }}>
+        [{entry.source}]
+      </span>{' '}
+      <span style={{ color: LEVEL_COLOR[entry.level] ?? '#24292f' }}>[{entry.level}]</span>{' '}
+      {entry.text}
+    </div>
+  );
+}
 
 function MetroSection(): ReactElement {
   const [status, setStatus] = useState<MetroStatus>('idle');

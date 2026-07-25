@@ -7,6 +7,7 @@ import {
   discoverProxies,
   MetroController,
   ProcessManager,
+  UnifiedLogController,
 } from '@icarus/core';
 import {
   CHANNELS,
@@ -52,6 +53,13 @@ const metro = new MetroController({ processes });
  */
 const devices = new DevicesController({ processes });
 
+/**
+ * The single UnifiedLogController (E-10). Fan-in for CDP console events + Metro
+ * lines. The renderer subscribes to the same stream via IPC, so this is the
+ * single source of truth for "what just happened in the app."
+ */
+const unified = new UnifiedLogController();
+
 function wireProcessTeardown(): void {
   app.on('will-quit', () => {
     void processes.disposeAll();
@@ -87,7 +95,11 @@ function createCdpSession(window: BrowserWindow): CdpSession {
     startProxy: (upstreamUrl) => startCdpProxy({ upstreamUrl }),
     createClient: (downstreamUrl) =>
       new CdpClient(downstreamUrl, { socketFactory: wsSocketFactory }),
-    onLog: (entry) => push(EVENTS.CDP_LOG, entry),
+    onLog: (entry) => {
+      push(EVENTS.CDP_LOG, entry);
+      // Fan in to the unified log stream (E-10).
+      unified.pushCdp(entry);
+    },
     onNetwork: (event) => push(EVENTS.CDP_NETWORK, event),
     onStatus: (event) => push(EVENTS.CDP_STATUS, event),
   });

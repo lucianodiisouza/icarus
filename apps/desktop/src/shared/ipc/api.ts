@@ -17,6 +17,7 @@ import type {
   DevicesInstallInput,
   DevicesLaunchInput,
   DevicesListOutput,
+  UnifiedLogEntryOut,
 } from './contracts.js';
 
 export type Unsubscribe = () => void;
@@ -59,6 +60,9 @@ export interface IcarusApi {
   devicesInstall(input: DevicesInstallInput): Promise<void>;
   /** Launch an installed app on a simulator. */
   devicesLaunch(input: DevicesLaunchInput): Promise<DevicesLaunchOutput>;
+
+  /** Subscribe to the unified log stream (E-10). */
+  onUnifiedLog(handler: (entry: UnifiedLogEntryOut) => void): Unsubscribe;
 }
 
 declare global {

@@ -90,3 +90,21 @@ export { parseSimctlListDevices, makeProcessSimctlExecutor } from './devices/ios
 export type { SimDevice, SimctlExecutor } from './devices/ios-simctl.js';
 export { DevicesController } from './devices/devices-controller.js';
 export type { DevicesControllerDeps } from './devices/devices-controller.js';
+
+// Unified log pipeline (E-10)
+export { UnifiedLogController } from './unified-log/unified-log-controller.js';
+export { fuseCdp, fuseMetro, fuseNative } from './unified-log/unified-log-fuser.js';
+export type {
+  UnifiedLogEntry,
+  UnifiedLogLevel,
+  UnifiedLogSource,
+} from './unified-log/unified-log.js';
+export type { UnifiedEntryHandler } from './unified-log/unified-log-controller.js';
+
+// iOS syslog (E-10 native source)
+export {
+  IosSyslogSource,
+  InMemoryNativeLogSource,
+  parseSyslogLine,
+} from './native-logs/ios-syslog.js';
+export type { NativeLogSourceLike, NativeLogExecutor } from './native-logs/ios-syslog.js';

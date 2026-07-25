@@ -7,6 +7,7 @@ import type {
   MetroStatus,
   ProjectKind,
   SimDevice,
+  UnifiedLogEntry,
 } from '@icarus/core';
 
 /**
@@ -55,6 +56,7 @@ export const EVENTS = {
   CDP_NETWORK: 'event:cdp.network',
   METRO_LOG: 'event:metro.log',
   METRO_STATUS: 'event:metro.status',
+  UNIFIED_LOG: 'event:unified.log',
 } as const;
 
 export type CdpConnectionStatus =
@@ -119,6 +121,10 @@ export interface MetroStatusEvent {
 export const devicesListInputSchema = z.void();
 export type { SimDevice };
 export type DevicesListOutput = SimDevice[];
+
+// --- E-10 unified log event ---
+export type { UnifiedLogEntry };
+export type UnifiedLogEntryOut = UnifiedLogEntry;
 
 export const devicesBootInputSchema = z.object({
   udid: z.string().min(1),
