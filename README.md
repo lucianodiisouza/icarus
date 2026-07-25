@@ -1,6 +1,6 @@
 # Icarus — RNStudio
 
-> _"Claude Code for React Native development."_
+> _"Fly next to the sun when doing ReactNative work."_
 
 A desktop application that aims to become the single place where developers run,
 inspect, debug, understand, and interact with their React Native applications.
