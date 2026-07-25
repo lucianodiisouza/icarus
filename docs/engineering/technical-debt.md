@@ -44,6 +44,10 @@ detached-group teardown. Known gaps, deferred with triggers:
 
 ## M1 retrospective — 2026-07-25
 
+> Full closeout: [reports/m1-closeout.md](reports/m1-closeout.md) — the loop, the post-M1
+> hardening (TD-06/07/09/10/15/18/21), an honest exit-criteria scorecard (2 met, 2 open),
+> and the M2 gate.
+
 M1 (the "first useful loop": run an RN app + unified logs) shipped via the following
 slices, all on `main`:
 
