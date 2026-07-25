@@ -1,6 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { CdpConsoleEntry, CdpTarget } from '@icarus/core';
-import { CdpSession, type CdpClientLike, type CdpSessionDeps } from './cdp-session.js';
+import type { CdpConsoleEntry, CdpNetworkEvent, CdpTarget } from '@icarus/core';
+import { NETWORK_EVENTS } from '@icarus/core';
+import {
+  CdpSession,
+  type CdpClientLike,
+  type CdpSessionDeps,
+  type CdpSessionStatusEvent,
+} from './cdp-session.js';
 
 const target: CdpTarget = {
   id: 't1',
@@ -9,18 +15,37 @@ const target: CdpTarget = {
   reactNative: { capabilities: { prefersFuseboxFrontend: true } },
 };
 
-/** A fake client that records its close handler so tests can fire it. */
+type Handler = (params: unknown) => void;
+
+/** A fake client that records its close + event handlers so tests can fire them. */
 function makeFakeClient(): CdpClientLike & {
   emitClose(reason?: Error): void;
   emitConsole: (params: unknown) => void;
+  emitNetwork(method: string, params: unknown): void;
+  /** Configure which methods the fake's `send` rejects for. Default: none reject. */
+  setRejects(methods: string[]): void;
 } {
   let closeHandler: ((reason: Error) => void) | undefined;
-  let consoleHandler: ((params: unknown) => void) | undefined;
+  const consoleHandler: { current?: Handler } = {};
+  const networkHandlers: Record<string, Handler> = {};
+  const rejectMethods = new Set<string>();
   const client: CdpClientLike = {
     connect: vi.fn(async () => {}),
-    send: vi.fn(async () => ({})),
+    send: vi.fn(async (method: string) => {
+      if (rejectMethods.has(method)) {
+        throw new Error(`mock: ${method} not supported`);
+      }
+      return {};
+    }),
     on: vi.fn((method, handler) => {
-      if (method === 'Runtime.consoleAPICalled') consoleHandler = handler;
+      if (method === 'Runtime.consoleAPICalled') consoleHandler.current = handler;
+      else if (
+        Object.values(NETWORK_EVENTS).includes(
+          method as (typeof NETWORK_EVENTS)[keyof typeof NETWORK_EVENTS],
+        )
+      ) {
+        networkHandlers[method] = handler;
+      }
       return () => {};
     }),
     onClose: vi.fn((handler) => {
@@ -34,13 +59,19 @@ function makeFakeClient(): CdpClientLike & {
   return {
     ...client,
     emitClose: (reason = new Error('socket closed')) => closeHandler?.(reason),
-    emitConsole: (params: unknown) => consoleHandler?.(params),
+    emitConsole: (params: unknown) => consoleHandler.current?.(params),
+    emitNetwork: (method, params) => networkHandlers[method]?.(params),
+    setRejects: (methods) => {
+      rejectMethods.clear();
+      for (const m of methods) rejectMethods.add(m);
+    },
   };
 }
 
 function makeDeps(overrides: Partial<CdpSessionDeps> = {}) {
   const logs: CdpConsoleEntry[] = [];
-  const statuses: Array<{ status: string; detail?: string }> = [];
+  const network: CdpNetworkEvent[] = [];
+  const statuses: CdpSessionStatusEvent[] = [];
   const client = makeFakeClient();
   const proxy = { downstreamUrl: 'ws://localhost:9999', close: vi.fn(async () => {}) };
 
@@ -49,15 +80,25 @@ function makeDeps(overrides: Partial<CdpSessionDeps> = {}) {
     startProxy: vi.fn(async () => proxy),
     createClient: vi.fn(() => client),
     onLog: (e) => logs.push(e),
-    onStatus: (status, detail) => statuses.push({ status, ...(detail ? { detail } : {}) }),
+    onNetwork: (e) => network.push(e),
+    onStatus: (event) => statuses.push(event),
     sleep: vi.fn(async () => {}),
     ...overrides,
   };
-  return { deps, client, proxy, logs, statuses, emitConsole: client.emitConsole };
+  return {
+    deps,
+    client,
+    proxy,
+    logs,
+    network,
+    statuses,
+    emitConsole: client.emitConsole,
+    emitNetwork: client.emitNetwork,
+  };
 }
 
 describe('CdpSession', () => {
-  it('connects: discover → proxy → client → Runtime.enable, and reports connected', async () => {
+  it('connects: discover → proxy → client → Runtime.enable + Network.enable, and reports connected with networkSupport', async () => {
     const { deps, client, proxy, statuses } = makeDeps();
     const session = new CdpSession(deps);
 
@@ -67,8 +108,13 @@ describe('CdpSession', () => {
     expect(deps.createClient).toHaveBeenCalledWith(proxy.downstreamUrl);
     expect(client.connect).toHaveBeenCalled();
     expect(client.send).toHaveBeenCalledWith('Runtime.enable');
+    expect(client.send).toHaveBeenCalledWith('Network.enable');
     expect(session.status).toBe('connected');
-    expect(statuses.map((s) => s.status)).toEqual(['connecting', 'connected']);
+    expect(session.networkSupport).toBe('available');
+    // The final 'connected' status carries the support info.
+    const last = statuses[statuses.length - 1];
+    expect(last?.status).toBe('connected');
+    expect(last?.networkSupport).toBe('available');
   });
 
   it('streams console events as normalized log entries', async () => {
@@ -343,13 +389,122 @@ describe('CdpSession', () => {
     await vi.waitFor(() => expect(sleep.sleep).toHaveBeenCalledTimes(1));
     sleep.tick();
     await vi.waitFor(() => expect(fresh1.send).toHaveBeenCalledWith('Runtime.enable'));
-    expect(fresh1.send).toHaveBeenCalledTimes(1);
+    // The new client also has Network.enable re-sent (slice 5). Both are expected.
+    expect(fresh1.send).toHaveBeenCalledTimes(2);
 
     // Second drop on fresh1: another reconnect → fresh2.
     fresh1.emitClose(new Error('second drop'));
     await vi.waitFor(() => expect(sleep.sleep).toHaveBeenCalledTimes(2));
     sleep.tick();
     await vi.waitFor(() => expect(fresh2.send).toHaveBeenCalledWith('Runtime.enable'));
-    expect(fresh2.send).toHaveBeenCalledTimes(1);
+    expect(fresh2.send).toHaveBeenCalledTimes(2);
+  });
+
+  // -------- Network domain (E-14 slice 5) --------
+
+  it('streams network events as normalized records when Network.enable succeeds', async () => {
+    const { deps, client, network, emitNetwork } = makeDeps();
+    const session = new CdpSession(deps);
+    await session.connect();
+    expect(session.networkSupport).toBe('available');
+
+    emitNetwork(NETWORK_EVENTS.REQUEST_WILL_BE_SENT, {
+      requestId: 'r1',
+      timestamp: 100,
+      request: { url: 'https://api.example.com/u', method: 'POST' },
+    });
+    emitNetwork(NETWORK_EVENTS.RESPONSE_RECEIVED, {
+      requestId: 'r1',
+      timestamp: 200,
+      response: {
+        url: 'https://api.example.com/u',
+        status: 201,
+        statusText: 'Created',
+        mimeType: 'application/json',
+        requestMethod: 'POST',
+      },
+    });
+    emitNetwork(NETWORK_EVENTS.LOADING_FAILED, {
+      requestId: 'r2',
+      timestamp: 300,
+      errorText: 'net::ERR_INTERNET_DISCONNECTED',
+    });
+
+    expect(network).toEqual([
+      {
+        kind: 'request',
+        requestId: 'r1',
+        timestampMs: 100,
+        url: 'https://api.example.com/u',
+        method: 'POST',
+      },
+      {
+        kind: 'response',
+        requestId: 'r1',
+        timestampMs: 200,
+        url: 'https://api.example.com/u',
+        method: 'POST',
+        status: 201,
+        statusText: 'Created',
+        contentType: 'application/json',
+      },
+      {
+        kind: 'failed',
+        requestId: 'r2',
+        timestampMs: 300,
+        errorText: 'net::ERR_INTERNET_DISCONNECTED',
+      },
+    ]);
+    void client;
+  });
+
+  it('gracefully degrades when Network.enable fails (RN < 0.76) and skips network events', async () => {
+    const { deps, client, network, emitNetwork, statuses } = makeDeps();
+    client.setRejects(['Network.enable']);
+    const session = new CdpSession(deps);
+    await session.connect();
+
+    // The session is still 'connected' — console keeps working.
+    expect(session.status).toBe('connected');
+    expect(session.networkSupport).toBe('unavailable');
+    // The final status event carries the unavailable signal.
+    const last = statuses[statuses.length - 1];
+    expect(last?.networkSupport).toBe('unavailable');
+
+    // Network events are subscribed to but the guard in #forwardNetwork suppresses
+    // forwarding when support is 'unavailable' — the renderer never sees them.
+    emitNetwork(NETWORK_EVENTS.REQUEST_WILL_BE_SENT, {
+      requestId: 'r1',
+      timestamp: 100,
+      request: { url: 'https://x', method: 'GET' },
+    });
+    expect(network).toEqual([]);
+  });
+
+  it('re-enables Network on a successful reconnect (each attempt is fresh)', async () => {
+    const sleep = makeTickableSleep();
+    const { deps } = makeDeps({ sleep: sleep.sleep });
+    const session = new CdpSession(deps);
+    await session.connect();
+    const firstClient = (deps.createClient as ReturnType<typeof vi.fn>).mock.results[0]
+      ?.value as ReturnType<typeof makeFakeClient>;
+    firstClient.emitClose(new Error('drop'));
+
+    await vi.waitFor(() => expect(sleep.sleep).toHaveBeenCalledTimes(1));
+    sleep.tick();
+    // After reconnect, Network.enable is sent on the new client too.
+    await vi.waitFor(() => expect(deps.createClient).toHaveBeenCalledTimes(2));
+    const newClient = (deps.createClient as ReturnType<typeof vi.fn>).mock.results[1]
+      ?.value as ReturnType<typeof makeFakeClient>;
+    await vi.waitFor(() => expect(newClient.send).toHaveBeenCalledWith('Network.enable'));
+  });
+
+  it('resets networkSupport to undefined on disconnect', async () => {
+    const { deps } = makeDeps();
+    const session = new CdpSession(deps);
+    await session.connect();
+    expect(session.networkSupport).toBe('available');
+    await session.disconnect();
+    expect(session.networkSupport).toBeUndefined();
   });
 });

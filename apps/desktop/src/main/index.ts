@@ -60,7 +60,8 @@ function createCdpSession(window: BrowserWindow): CdpSession {
     createClient: (downstreamUrl) =>
       new CdpClient(downstreamUrl, { socketFactory: wsSocketFactory }),
     onLog: (entry) => push(EVENTS.CDP_LOG, entry),
-    onStatus: (status, detail) => push(EVENTS.CDP_STATUS, { status, detail }),
+    onNetwork: (event) => push(EVENTS.CDP_NETWORK, event),
+    onStatus: (event) => push(EVENTS.CDP_STATUS, event),
   });
 }
 

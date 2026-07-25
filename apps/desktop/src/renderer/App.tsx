@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react';
 import type { DoctorCheckOutput } from '../shared/ipc/contracts.js';
-import type { CdpConnectionStatus, CdpLogEvent } from '../shared/ipc/contracts.js';
+import type {
+  CdpConnectionStatus,
+  CdpLogEvent,
+  CdpNetworkEventOut,
+  CdpNetworkSupport,
+} from '../shared/ipc/contracts.js';
 
 const STATUS_COLOR: Record<string, string> = {
   ok: '#1a7f37',
@@ -20,8 +25,13 @@ const LEVEL_COLOR: Record<string, string> = {
 };
 
 const MAX_LOGS = 500;
+const MAX_NETWORK = 200;
 
 interface LogRow extends CdpLogEvent {
+  readonly key: number;
+}
+
+interface NetworkRow extends CdpNetworkEventOut {
   readonly key: number;
 }
 
@@ -33,6 +43,8 @@ export function App(): ReactElement {
       <DoctorSection />
       <hr style={{ margin: '28px 0', border: 0, borderTop: '1px solid #eaeef2' }} />
       <LiveLogsSection />
+      <hr style={{ margin: '28px 0', border: 0, borderTop: '1px solid #eaeef2' }} />
+      <NetworkSection />
     </main>
   );
 }
@@ -171,6 +183,118 @@ function LiveLogsSection(): ReactElement {
         )}
       </div>
     </section>
+  );
+}
+
+function NetworkSection(): ReactElement {
+  const [support, setSupport] = useState<CdpNetworkSupport | undefined>(undefined);
+  const [status, setStatus] = useState<CdpConnectionStatus>('disconnected');
+  const [events, setEvents] = useState<NetworkRow[]>([]);
+  const keyRef = useRef(0);
+  const listRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const offNet = window.icarus.onCdpNetwork((entry) => {
+      setEvents((prev) => {
+        const next = [...prev, { ...entry, key: keyRef.current++ }];
+        return next.length > MAX_NETWORK ? next.slice(next.length - MAX_NETWORK) : next;
+      });
+    });
+    const offStatus = window.icarus.onCdpStatus((s) => {
+      setStatus(s.status);
+      // Reset captured events on every fresh connect — the old request IDs are gone.
+      if (s.status === 'connected') {
+        setSupport(s.networkSupport);
+        setEvents([]);
+      } else if (s.status === 'disconnected') {
+        setSupport(undefined);
+      } else if (s.networkSupport) {
+        setSupport(s.networkSupport);
+      }
+    });
+    return () => {
+      offNet();
+      offStatus();
+    };
+  }, []);
+
+  useEffect(() => {
+    listRef.current?.scrollTo({ top: listRef.current.scrollHeight });
+  }, [events]);
+
+  const supportLabel: string =
+    support === undefined
+      ? status === 'connected'
+        ? 'checking…'
+        : '—'
+      : support === 'available'
+        ? 'available'
+        : 'unavailable on this RN version';
+
+  const supportColor = support === 'available' ? STATUS_COLOR.connected : STATUS_COLOR.warn;
+
+  return (
+    <section>
+      <h2 style={{ fontSize: 16 }}>Network requests (CDP, RN ≥ 0.76)</h2>
+      <p style={{ color: '#57606a', marginTop: 0, fontSize: 13 }}>
+        Network: <span style={{ color: supportColor, fontWeight: 600 }}>{supportLabel}</span>
+      </p>
+
+      <div
+        ref={listRef}
+        style={{
+          height: 240,
+          overflowY: 'auto',
+          border: '1px solid #eaeef2',
+          borderRadius: 6,
+          padding: 8,
+          fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+          fontSize: 12.5,
+          background: '#f6f8fa',
+        }}
+      >
+        {events.length === 0 ? (
+          <p style={{ color: '#8c959f', margin: 8 }}>
+            {support === 'unavailable'
+              ? 'Network capture requires React Native 0.76 or newer.'
+              : status === 'connected'
+                ? 'No network requests captured yet. The app needs to make a request.'
+                : 'Connect first.'}
+          </p>
+        ) : (
+          events.map((e) => <NetworkRowView key={e.key} event={e} />)
+        )}
+      </div>
+    </section>
+  );
+}
+
+function NetworkRowView({ event }: { event: CdpNetworkEventOut }): ReactElement {
+  if (event.kind === 'request') {
+    return (
+      <div style={{ padding: '2px 0' }}>
+        <span style={{ color: '#0969da' }}>→ {event.method ?? '?'}</span>{' '}
+        <span>{event.url ?? '(no url)'}</span>
+      </div>
+    );
+  }
+  if (event.kind === 'response') {
+    const statusColor = (event.status ?? 0) >= 400 ? STATUS_COLOR.error : STATUS_COLOR.ok;
+    return (
+      <div style={{ padding: '2px 0' }}>
+        <span style={{ color: statusColor }}>← {event.status ?? '?'}</span>{' '}
+        <span>
+          {event.method ?? '?'} {event.url ?? '(no url)'}
+        </span>
+        {event.contentType && <span style={{ color: '#57606a' }}> — {event.contentType}</span>}
+      </div>
+    );
+  }
+  return (
+    <div style={{ padding: '2px 0' }}>
+      <span style={{ color: STATUS_COLOR.error }}>✗ failed</span>{' '}
+      <span style={{ color: '#57606a' }}>{event.errorText ?? 'unknown error'}</span>
+    </div>
   );
 }
 
