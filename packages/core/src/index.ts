@@ -28,6 +28,25 @@ export type {
   StreamName,
 } from './process/types.js';
 
+// CDP transport (E-14, ADR-0008)
+export { CdpClient, CdpError, httpOriginFromWsUrl } from './protocol/cdp/cdp-client.js';
+export {
+  discoverProxies,
+  queryProxy,
+  DEFAULT_METRO_PORTS,
+  DEFAULT_HOST,
+} from './protocol/cdp/discovery.js';
+export { selectMainTarget, selectableTargets } from './protocol/cdp/target-selection.js';
+export type {
+  CdpTarget,
+  ProxyDiscovery,
+  CdpSocket,
+  CdpSocketFactory,
+  CdpClientOptions,
+  FetchLike,
+} from './protocol/cdp/types.js';
+export type { DiscoverOptions } from './protocol/cdp/discovery.js';
+
 // Environment doctor (TR-4)
 export { runDoctor, parseVersion } from './doctor/doctor.js';
 export { NodeToolRunner } from './doctor/tool-runner.js';
