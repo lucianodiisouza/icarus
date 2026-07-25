@@ -82,6 +82,15 @@ jobs:
         # its postinstall fetches the platform binary here.
         run: pnpm install --frozen-lockfile
 
+      - name: Ensure Electron binary is present
+        # The pnpm store cache is shared with the `verify` job, which installs with
+        # ELECTRON_SKIP_BINARY_DOWNLOAD=1. If that job seeds the cache first, pnpm
+        # restores electron marked "built" but with no binary, and skips the
+        # postinstall here — electron.launch then fails "failed to install
+        # correctly". Force-run electron's own installer so the binary is always
+        # fetched, independent of cache ordering.
+        run: pnpm --filter @icarus/desktop exec node -e "require('node:child_process').execFileSync(process.execPath, [require.resolve('electron/install.js')], { stdio: 'inherit' })"
+
       - name: Install Electron/Chromium system libs + xvfb
         # Playwright's dep installer pulls the shared libraries Electron's Chromium
         # needs (libnss3, libgbm, libatk, …) plus xvfb — maintained across Ubuntu
