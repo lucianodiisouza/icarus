@@ -37,6 +37,8 @@ export {
   DEFAULT_HOST,
 } from './protocol/cdp/discovery.js';
 export { selectMainTarget, selectableTargets } from './protocol/cdp/target-selection.js';
+export { CdpMultiplexer } from './protocol/cdp/multiplexer.js';
+export type { SendFrame } from './protocol/cdp/multiplexer.js';
 export type {
   CdpTarget,
   ProxyDiscovery,
