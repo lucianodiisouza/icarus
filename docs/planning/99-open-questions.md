@@ -1,0 +1,38 @@
+# 99 — Open Questions (living register)
+
+Every unresolved decision lives here rather than being silently guessed. Each has a
+status, an owner discipline, and where it must be resolved. **We do not manufacture
+certainty**; an item here is honest ignorance, not indecision.
+
+Status: 🔴 open · 🟡 investigating · 🟢 resolved (with link to the ADR/decision).
+
+| ID | Question | Status | Must resolve by | Notes |
+|----|----------|--------|-----------------|-------|
+| OQ-1 | Primary OS target & order | 🟢 | — | **Resolved 2026-07-25: macOS-first** (keep code cross-platform-clean; no Win/Linux parity guarantee early). A-1 confirmed. |
+| OQ-2 | Is the fragmentation pain sharp enough to switch tools? | 🔴 | M1 (design-partner interviews) | PR-1. The whole product thesis. |
+| OQ-3 | Who exactly is the target dev (Expo vs bare RN, team size)? | 🟢 (partial) | — | **Resolved 2026-07-25: target BOTH bare RN + Expo** from the spike onward. Team-size targeting still open (folds into OQ-2 interviews). |
+| OQ-4 | **Can a 3rd-party tool reliably drive CDP via Metro's inspector proxy?** | 🟡 (leaning yes) | **M0 spike (gate)** | TR-1 / ADR-0008. **Prior art (dev-middleware, metro-mcp) confirms feasibility** for Console/Network/Runtime/Heap/Debugger, no app changes. Spike now confirms on our versions. |
+| OQ-5 | Does connecting conflict with the user's own RN DevTools? (multi-client) | 🟡 | M0 spike | **Yes — Hermes allows 1 CDP connection.** Known fix: multiplexing proxy. Merged with OQ-14. |
+| OQ-6 | Telemetry: collect anything? what? how consented? | 🔴 | Before any usage metric / M3 | Privacy. Blocks automated Success Metrics. |
+| OQ-7 | AI: local model vs API vs bring-your-own-key? | 🔴 | Before M3 (E-12) | TR-5. Architecture keeps it swappable. |
+| OQ-8 | Do any feature modules need process isolation (vs in-process)? | 🔴 | When first risky module lands | ADR-0007. Trigger: native binding or first module-caused crash. |
+| OQ-9 | Is debug context ever persisted to disk (session replay)? | 🔴 | When a feature needs it | Store is in-memory first. |
+| OQ-10 | Package granularity for feature modules (one pkg each vs grouped) | 🔴 | First real module | ADR-0001. |
+| OQ-11 | Min acceptable footprint/memory before Electron is a blocker | 🔴 | Needs real user feedback | ADR-0002 / TR-7. |
+| OQ-12 | Renderer styling system & component/virtualization lib | 🔴 | First UI Epic | ADR-0005. |
+| OQ-13 | Delta representation for store→UI (JSON patch vs domain diffs) | 🔴 | First streaming feature | ADR-0006. |
+| OQ-14 | Icarus + user's own RN DevTools coexistence on one app | 🟡 | M0 spike | **Solvable via a multiplexing proxy** (proven by metro-mcp). Spike builds/measures ours. |
+| OQ-15 | How much native-tooling (adb/simctl) is CI-testable vs manual | 🔴 | As those Epics land | Doc 14. |
+| OQ-16 | Repo host / CI provider | 🟢 | — | **Resolved 2026-07-25: GitHub + GitHub Actions.** Doc 15. |
+| OQ-17 | Signing identities & notarization (Apple Dev ID, Win cert) | 🔴 | Before M2 release workflow | Doc 15/16. |
+| OQ-18 | Packaging tool: electron-builder vs electron-forge | 🔴 | Release Epic (M2) | Doc 16. |
+| OQ-19 | Distribution surface (direct/Homebrew/store) | 🔴 | Post design-partner feedback | Doc 16. |
+| OQ-20 | How do Expo (dev-client/Go) vs bare RN differ in Metro/inspector launch & CDP behavior? | 🟡 | **M0 CDP spike** | Now in-scope for the spike (both targeted). Technical unknown, not a product choice. |
+
+## How this register is used
+
+- New uncertainty discovered mid-Epic is added **immediately**, not deferred.
+- Resolving an item means writing/linking an ADR or a documented decision and flipping
+  the status to 🟢 with a link.
+- OQ-4 is special: it **gates the roadmap**. Until it's resolved, M2+ plans are
+  provisional.
