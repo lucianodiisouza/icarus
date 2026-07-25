@@ -8,6 +8,7 @@ import {
   createUnifiedLogModule,
   DevicesController,
   discoverProxies,
+  IosSyslogSource,
   MetroController,
   ModuleRegistry,
   ProcessManager,
@@ -38,6 +39,7 @@ import { wsSocketFactory } from './cdp/ws-socket-factory.js';
 import { AutoAttach } from './auto-attach.js';
 import { bindRegistryToWindow } from './feature-module-bridge.js';
 import { wireMetroIntoUnified } from './unified-fan-in.js';
+import { SyslogFanIn } from './syslog-fan-in.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -92,6 +94,16 @@ registry.register(createUnifiedLogModule(unified), { processes });
  */
 const unbindMetroFanIn = wireMetroIntoUnified(metro, unified);
 
+/**
+ * Fan the booted simulator's native syslog into the unified log (TD-18). Started
+ * from the `devices.boot` handler; follows the most recently booted sim, one
+ * stream at a time (see SyslogFanIn). The third and last unified-log source.
+ */
+const syslogFanIn = new SyslogFanIn({
+  unified,
+  createSource: (udid) => new IosSyslogSource(udid, processes),
+});
+
 function wireProcessTeardown(): void {
   app.on('will-quit', () => {
     // Detach the Metro→unified fan-in, then dispose the module registry
@@ -99,10 +111,12 @@ function wireProcessTeardown(): void {
     // live child processes). The order matters: a module might still be holding
     // a reference to a process when we tear it down.
     unbindMetroFanIn();
+    void syslogFanIn.stop();
     void registry.disposeAll().finally(() => processes.disposeAll());
   });
   const onSignal = (): void => {
     unbindMetroFanIn();
+    void syslogFanIn.stop();
     void registry.disposeAll().finally(() => processes.disposeAll().finally(() => process.exit(0)));
   };
   process.once('SIGINT', onSignal);
@@ -190,6 +204,8 @@ router.register(
 
 router.register(CHANNELS.DEVICES_BOOT, devicesBootInputSchema, async ({ udid }): Promise<void> => {
   await devices.boot(udid);
+  // Stream the just-booted sim's native syslog into the unified log (TD-18).
+  syslogFanIn.start(udid);
 });
 
 router.register(
