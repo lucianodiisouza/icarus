@@ -1,6 +1,26 @@
 import { resolve } from 'node:path';
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'electron-vite';
+import type { Plugin } from 'vite';
+
+/**
+ * Inject a strict CSP <meta> into index.html at BUILD time only (apply: 'build'). The
+ * packaged app loads via file://, where the main-process header CSP does not apply — so
+ * the meta tag is the enforcement mechanism there. In dev this plugin is inactive and the
+ * dev-friendly header CSP (main/index.ts) governs instead (ADR-0004).
+ */
+function cspMetaPlugin(): Plugin {
+  const csp =
+    "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data:";
+  return {
+    name: 'icarus-inject-csp-meta',
+    apply: 'build',
+    transformIndexHtml(html: string): string {
+      const tag = `    <meta http-equiv="Content-Security-Policy" content="${csp}" />\n  </head>`;
+      return html.replace('  </head>', tag);
+    },
+  };
+}
 
 /**
  * electron-vite config: three build targets (main, preload, renderer). The renderer is a
@@ -19,6 +39,9 @@ export default defineConfig({
     build: {
       rollupOptions: {
         input: { index: resolve('src/preload/index.ts') },
+        // A sandboxed preload (sandbox: true, ADR-0004) must be CommonJS, not ESM —
+        // Electron cannot load an ESM preload in the sandbox. Emit .cjs.
+        output: { format: 'cjs', entryFileNames: '[name].cjs' },
       },
     },
   },
@@ -29,6 +52,6 @@ export default defineConfig({
         input: { index: resolve('src/renderer/index.html') },
       },
     },
-    plugins: [react()],
+    plugins: [react(), cspMetaPlugin()],
   },
 });

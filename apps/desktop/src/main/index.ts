@@ -28,14 +28,18 @@ function bindIpc(): void {
 }
 
 function applyContentSecurityPolicy(): void {
-  // Strict CSP: only our own bundled assets; no remote code (ADR-0004).
+  // CSP (ADR-0004). Prod is strict (own bundled assets only, no remote code). Dev must
+  // allow the Vite dev server's inline React-refresh preamble + HMR websocket, otherwise
+  // the renderer never mounts. Dev is detected by the presence of ELECTRON_RENDERER_URL.
+  const isDev = Boolean(process.env['ELECTRON_RENDERER_URL']);
+  const policy = isDev
+    ? "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; connect-src 'self' ws://localhost:* http://localhost:*; img-src 'self' data:"
+    : "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data:";
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
     callback({
       responseHeaders: {
         ...details.responseHeaders,
-        'Content-Security-Policy': [
-          "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'",
-        ],
+        'Content-Security-Policy': [policy],
       },
     });
   });
@@ -51,7 +55,7 @@ function createWindow(): void {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
-      preload: join(__dirname, '../preload/index.mjs'),
+      preload: join(__dirname, '../preload/index.cjs'),
     },
   });
 
