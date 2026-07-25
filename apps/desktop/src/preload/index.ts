@@ -42,6 +42,11 @@ const api: IcarusApi = {
   devicesLaunch: (input) => ipcRenderer.invoke(CHANNELS.DEVICES_LAUNCH, input),
   onUnifiedLog: (handler: (entry: UnifiedLogEntryOut) => void) =>
     subscribe(EVENTS.UNIFIED_LOG, handler),
+  onModuleEvent: <T = unknown>(
+    moduleId: string,
+    eventName: string,
+    handler: (envelope: { timestampMs: number; payload: T }) => void,
+  ) => subscribe(`module.${moduleId}.event.${eventName}`, handler),
 };
 
 contextBridge.exposeInMainWorld('icarus', api);
