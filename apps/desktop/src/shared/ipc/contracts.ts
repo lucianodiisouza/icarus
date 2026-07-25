@@ -1,5 +1,12 @@
 import { z } from 'zod';
-import type { CdpConsoleEntry, CdpNetworkEvent, DoctorReport } from '@icarus/core';
+import type {
+  CdpConsoleEntry,
+  CdpNetworkEvent,
+  DoctorReport,
+  MetroLogEvent,
+  MetroStatus,
+  ProjectKind,
+} from '@icarus/core';
 
 /**
  * The IPC contract shared by main, preload, and renderer. This is the single trust
@@ -20,6 +27,10 @@ export const CHANNELS = {
   CDP_CONNECT: 'command:cdp.connect',
   /** Command: tear down the live CDP session. */
   CDP_DISCONNECT: 'command:cdp.disconnect',
+  /** Command: start Metro for the given project directory (E-08). */
+  METRO_START: 'command:metro.start',
+  /** Command: stop the running Metro process (E-08). */
+  METRO_STOP: 'command:metro.stop',
 } as const;
 
 export type ChannelName = (typeof CHANNELS)[keyof typeof CHANNELS];
@@ -33,6 +44,8 @@ export const EVENTS = {
   CDP_LOG: 'event:cdp.log',
   CDP_STATUS: 'event:cdp.status',
   CDP_NETWORK: 'event:cdp.network',
+  METRO_LOG: 'event:metro.log',
+  METRO_STATUS: 'event:metro.status',
 } as const;
 
 export type CdpConnectionStatus =
@@ -69,4 +82,26 @@ export const cdpConnectInputSchema = z.void();
 export const cdpDisconnectInputSchema = z.void();
 export interface CdpCommandOutput {
   readonly status: CdpConnectionStatus;
+}
+
+// --- command:metro.start / metro.stop (E-08) ---
+export const metroStartInputSchema = z.object({
+  cwd: z.string().min(1),
+});
+export type MetroStartInput = z.infer<typeof metroStartInputSchema>;
+export type { MetroStatus, ProjectKind };
+export interface MetroStartOutput {
+  readonly status: MetroStatus;
+  readonly port: number | null;
+  readonly projectName: string | null;
+  readonly projectKind: ProjectKind;
+}
+export const metroStopInputSchema = z.void();
+
+export type MetroLogEventOut = MetroLogEvent;
+export interface MetroStatusEvent {
+  readonly status: MetroStatus;
+  readonly port: number | null;
+  readonly projectName: string | null;
+  readonly projectKind: ProjectKind;
 }

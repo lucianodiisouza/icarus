@@ -1,13 +1,17 @@
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { app, BrowserWindow, ipcMain, session } from 'electron';
-import { CdpClient, discoverProxies, ProcessManager } from '@icarus/core';
+import { CdpClient, discoverProxies, MetroController, ProcessManager } from '@icarus/core';
 import {
   CHANNELS,
   cdpConnectInputSchema,
   cdpDisconnectInputSchema,
   EVENTS,
+  metroStartInputSchema,
+  metroStopInputSchema,
   type CdpCommandOutput,
+  type MetroStartOutput,
+  type MetroStatusEvent,
 } from '../shared/ipc/contracts.js';
 import { registerHandlers } from './ipc/handlers.js';
 import { IpcRouter } from './ipc/router.js';
@@ -23,6 +27,12 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
  * (G-2, TR-2) holds the moment the first process is spawned.
  */
 const processes = new ProcessManager();
+
+/**
+ * The single MetroController (E-08). One Metro at a time per app. Spawned by the same
+ * ProcessManager so its teardown is covered by the app-exit hook above.
+ */
+const metro = new MetroController({ processes });
 
 function wireProcessTeardown(): void {
   app.on('will-quit', () => {
@@ -82,6 +92,33 @@ router.register(
   },
 );
 
+router.register(
+  CHANNELS.METRO_START,
+  metroStartInputSchema,
+  async ({ cwd }): Promise<MetroStartOutput> => {
+    const started = await metro.start(cwd);
+    return {
+      status: metro.status,
+      port: started.port,
+      projectName: started.project.name,
+      projectKind: started.project.kind,
+    };
+  },
+);
+
+router.register(CHANNELS.METRO_STOP, metroStopInputSchema, async (): Promise<void> => {
+  await metro.stop();
+});
+
+function buildMetroStatusEvent(): MetroStatusEvent {
+  return {
+    status: metro.status,
+    port: metro.port,
+    projectName: metro.project?.name ?? null,
+    projectKind: metro.project?.kind ?? 'unknown',
+  };
+}
+
 /** Bind every registered channel to ipcMain.handle, routing through the validated router. */
 function bindIpc(): void {
   for (const channel of Object.values(CHANNELS)) {
@@ -127,6 +164,17 @@ function createWindow(): void {
 
   window.once('ready-to-show', () => window.show());
   cdpSession = createCdpSession(window);
+  // Push Metro status/log changes to this window. Set up once per window so the
+  // controller outlives the window (we tear it down on app exit, not on window close).
+  if (!window.isDestroyed()) {
+    metro.onLog((event) => {
+      if (!window.isDestroyed()) window.webContents.send(EVENTS.METRO_LOG, event);
+    });
+    metro.onStatus(() => {
+      if (!window.isDestroyed())
+        window.webContents.send(EVENTS.METRO_STATUS, buildMetroStatusEvent());
+    });
+  }
   window.on('closed', () => {
     void cdpSession?.disconnect();
     cdpSession = undefined;
