@@ -114,7 +114,11 @@ export { defineFeatureModule } from './feature-module/feature-module.js';
 export type { FeatureModule, ModuleContext } from './feature-module/feature-module.js';
 export { ModuleRegistry } from './feature-module/module-registry.js';
 export { createMetroModule } from './feature-module/metro-module.js';
-export type { MetroModule, MetroModuleEvents } from './feature-module/metro-module.js';
+export type {
+  MetroModule,
+  MetroModuleEvents,
+  MetroStatusSnapshot,
+} from './feature-module/metro-module.js';
 export { createUnifiedLogModule } from './feature-module/unified-log-module.js';
 export type {
   UnifiedLogModule,

@@ -7,10 +7,8 @@ import type {
   CdpStatusEvent,
   DoctorCheckOutput,
   DevicesLaunchOutput,
-  MetroLogEventOut,
   MetroStartInput,
   MetroStartOutput,
-  MetroStatusEvent,
 } from './contracts.js';
 import type {
   AutoAttachSetInput,
@@ -19,7 +17,6 @@ import type {
   DevicesInstallInput,
   DevicesLaunchInput,
   DevicesListOutput,
-  UnifiedLogEntryOut,
 } from './contracts.js';
 
 export type Unsubscribe = () => void;
@@ -49,10 +46,6 @@ export interface IcarusApi {
   metroStart(input: MetroStartInput): Promise<MetroStartOutput>;
   /** Stop the running Metro dev server. */
   metroStop(): Promise<void>;
-  /** Subscribe to live Metro stdout/stderr lines. */
-  onMetroLog(handler: (event: MetroLogEventOut) => void): Unsubscribe;
-  /** Subscribe to Metro status changes. */
-  onMetroStatus(handler: (status: MetroStatusEvent) => void): Unsubscribe;
 
   /** List the available iOS simulators (E-09). */
   devicesList(): Promise<DevicesListOutput>;
@@ -63,13 +56,12 @@ export interface IcarusApi {
   /** Launch an installed app on a simulator. */
   devicesLaunch(input: DevicesLaunchInput): Promise<DevicesLaunchOutput>;
 
-  /** Subscribe to the unified log stream (E-10). */
-  onUnifiedLog(handler: (entry: UnifiedLogEntryOut) => void): Unsubscribe;
-
   /**
-   * Generic event subscription for any registered FeatureModule (TD-15 apps/desktop
-   * half). The renderer can subscribe to `(moduleId, eventName)` pairs without
-   * needing a per-event IPC channel defined in the preload.
+   * Generic event subscription for any registered FeatureModule (TD-15). The
+   * renderer subscribes to `(moduleId, eventName)` pairs without needing a
+   * per-event IPC channel defined in the preload — this is the single path for
+   * every module's push events (metro log/status, unified-log log, and any
+   * future module). Adding a module needs no change here.
    *
    * The payload envelope is `{ timestampMs, payload }` — the inner `payload` is
    * the module-specific value the controller emitted.

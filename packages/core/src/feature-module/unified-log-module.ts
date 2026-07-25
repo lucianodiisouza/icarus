@@ -21,6 +21,7 @@ export function createUnifiedLogModule(
   return defineFeatureModule<UnifiedLogModuleEvents>({
     id: 'unified-log',
     displayName: 'Unified log pipeline',
+    events: ['log'],
     init: () => {
       // Idempotent: clear any prior subscription before re-init.
       unsubscriber?.();

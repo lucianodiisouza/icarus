@@ -3,7 +3,22 @@ import {
   type MetroLogEvent,
   type MetroStatus,
 } from '../metro/metro-controller.js';
+import type { ProjectKind } from '../detect-project/detect-project.js';
 import { defineFeatureModule, type FeatureModule } from './feature-module.js';
+
+/**
+ * The `status` event payload. The bare controller emits only the `MetroStatus`
+ * enum, but a consumer (the renderer) needs the surrounding context — port and
+ * project — to render the panel without a second round-trip. The module builds
+ * this snapshot from the controller's getters at emit time so the event is
+ * self-contained and the IPC bridge can forward it verbatim.
+ */
+export interface MetroStatusSnapshot {
+  readonly status: MetroStatus;
+  readonly port: number | null;
+  readonly projectName: string | null;
+  readonly projectKind: ProjectKind;
+}
 
 /**
  * FeatureModule wrapper for MetroController (E-08). The controller owns its own
@@ -14,7 +29,7 @@ import { defineFeatureModule, type FeatureModule } from './feature-module.js';
  */
 export type MetroModuleEvents = {
   log: MetroLogEvent;
-  status: MetroStatus;
+  status: MetroStatusSnapshot;
 };
 
 export type MetroModule = FeatureModule<MetroModuleEvents>;
@@ -31,9 +46,17 @@ export function createMetroModule(
   let logUnsubscribers: Array<() => void> = [];
   let statusUnsubscribers: Array<() => void> = [];
 
+  const statusSnapshot = (): MetroStatusSnapshot => ({
+    status: controller.status,
+    port: controller.port,
+    projectName: controller.project?.name ?? null,
+    projectKind: controller.project?.kind ?? 'unknown',
+  });
+
   return defineFeatureModule<MetroModuleEvents>({
     id: 'metro',
     displayName: 'Metro dev server',
+    events: ['log', 'status'],
     init: () => {
       // Re-attach every time init runs (the registry may call init again after a
       // tear-down). Tear down any prior subscribers first so we don't double-listen.
@@ -57,7 +80,10 @@ export function createMetroModule(
           logUnsubscribers = logUnsubscribers.filter((u) => u !== off);
         };
       }
-      const off = controller.onStatus(handler as (status: MetroStatus) => void);
+      // Enrich the bare MetroStatus into a self-contained snapshot before
+      // handing it to the subscriber (see MetroStatusSnapshot).
+      const statusHandler = handler as (snapshot: MetroStatusSnapshot) => void;
+      const off = controller.onStatus(() => statusHandler(statusSnapshot()));
       statusUnsubscribers.push(off);
       return () => {
         off();

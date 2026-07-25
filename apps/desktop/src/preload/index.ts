@@ -9,10 +9,7 @@ import type {
   CdpLogEvent,
   CdpNetworkEventOut,
   CdpStatusEvent,
-  MetroLogEventOut,
   MetroStartInput,
-  MetroStatusEvent,
-  UnifiedLogEntryOut,
 } from '../shared/ipc/contracts.js';
 import type { IcarusApi, Unsubscribe } from '../shared/ipc/api.js';
 
@@ -38,15 +35,10 @@ const api: IcarusApi = {
   onCdpStatus: (handler: (status: CdpStatusEvent) => void) => subscribe(EVENTS.CDP_STATUS, handler),
   metroStart: (input: MetroStartInput) => ipcRenderer.invoke(CHANNELS.METRO_START, input),
   metroStop: () => ipcRenderer.invoke(CHANNELS.METRO_STOP),
-  onMetroLog: (handler: (event: MetroLogEventOut) => void) => subscribe(EVENTS.METRO_LOG, handler),
-  onMetroStatus: (handler: (status: MetroStatusEvent) => void) =>
-    subscribe(EVENTS.METRO_STATUS, handler),
   devicesList: () => ipcRenderer.invoke(CHANNELS.DEVICES_LIST),
   devicesBoot: (input) => ipcRenderer.invoke(CHANNELS.DEVICES_BOOT, input),
   devicesInstall: (input) => ipcRenderer.invoke(CHANNELS.DEVICES_INSTALL, input),
   devicesLaunch: (input) => ipcRenderer.invoke(CHANNELS.DEVICES_LAUNCH, input),
-  onUnifiedLog: (handler: (entry: UnifiedLogEntryOut) => void) =>
-    subscribe(EVENTS.UNIFIED_LOG, handler),
   onModuleEvent: <T = unknown>(
     moduleId: string,
     eventName: string,

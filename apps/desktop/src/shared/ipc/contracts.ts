@@ -53,14 +53,16 @@ export type ChannelName = (typeof CHANNELS)[keyof typeof CHANNELS];
  * One-way main → renderer push channels (streamed via webContents.send, not the
  * request/response router). This is the first streaming IPC — justified by a real stream
  * (live logs), per ADR-0009.
+ *
+ * Only the CDP session lives here — it is a session object, not a registered
+ * FeatureModule. Registered modules (metro, unified-log, …) push over the
+ * generic `module.{id}.event.{name}` channels wired by `bindRegistryToWindow`
+ * (TD-15), so they need no per-channel entry in this map.
  */
 export const EVENTS = {
   CDP_LOG: 'event:cdp.log',
   CDP_STATUS: 'event:cdp.status',
   CDP_NETWORK: 'event:cdp.network',
-  METRO_LOG: 'event:metro.log',
-  METRO_STATUS: 'event:metro.status',
-  UNIFIED_LOG: 'event:unified.log',
 } as const;
 
 export type CdpConnectionStatus =

@@ -28,7 +28,6 @@ import {
   type DevicesLaunchOutput,
   type DevicesListOutput,
   type MetroStartOutput,
-  type MetroStatusEvent,
 } from '../shared/ipc/contracts.js';
 import { z } from 'zod';
 import { registerHandlers } from './ipc/handlers.js';
@@ -37,6 +36,7 @@ import { CdpSession } from './cdp/cdp-session.js';
 import { startCdpProxy } from './cdp/ws-proxy.js';
 import { wsSocketFactory } from './cdp/ws-socket-factory.js';
 import { AutoAttach } from './auto-attach.js';
+import { bindRegistryToWindow } from './feature-module-bridge.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -236,15 +236,6 @@ autoAttach.start({
   onDevicesListChange: () => () => undefined,
 });
 
-function buildMetroStatusEvent(): MetroStatusEvent {
-  return {
-    status: metro.status,
-    port: metro.port,
-    projectName: metro.project?.name ?? null,
-    projectKind: metro.project?.kind ?? 'unknown',
-  };
-}
-
 /** Bind every registered channel to ipcMain.handle, routing through the validated router. */
 function bindIpc(): void {
   for (const channel of Object.values(CHANNELS)) {
@@ -290,18 +281,12 @@ function createWindow(): void {
 
   window.once('ready-to-show', () => window.show());
   cdpSession = createCdpSession(window);
-  // Push Metro status/log changes to this window. Set up once per window so the
-  // controller outlives the window (we tear it down on app exit, not on window close).
-  if (!window.isDestroyed()) {
-    metro.onLog((event) => {
-      if (!window.isDestroyed()) window.webContents.send(EVENTS.METRO_LOG, event);
-    });
-    metro.onStatus(() => {
-      if (!window.isDestroyed())
-        window.webContents.send(EVENTS.METRO_STATUS, buildMetroStatusEvent());
-    });
-  }
+  // Auto-wire every registered module's events to this window (TD-15). The
+  // metro (log/status) and unified-log streams reach the renderer through the
+  // generic `module.{id}.event.{name}` channels — no per-module wiring here.
+  const unbindModules = bindRegistryToWindow(registry, window);
   window.on('closed', () => {
+    unbindModules();
     void cdpSession?.disconnect();
     cdpSession = undefined;
   });

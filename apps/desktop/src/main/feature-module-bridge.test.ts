@@ -1,7 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { BrowserWindow } from 'electron';
-import { bindIpcForModuleEvents, eventChannelFor } from './feature-module-bridge.js';
-import { defineFeatureModule, type FeatureModule } from '@icarus/core';
+import {
+  bindIpcForModuleEvents,
+  bindRegistryToWindow,
+  eventChannelFor,
+} from './feature-module-bridge.js';
+import { defineFeatureModule, ModuleRegistry, type FeatureModule } from '@icarus/core';
 
 function makeFakeWindow() {
   const sent: Array<{ channel: string; payload: unknown }> = [];
@@ -107,5 +111,76 @@ describe('bindIpcForModuleEvents', () => {
     const off = bindIpcForModuleEvents(module, [], { window });
     off();
     expect(() => off()).not.toThrow();
+  });
+});
+
+/**
+ * Build a module whose `on` captures subscribers so a test can fire events, and
+ * that declares the given `events` list (so `bindRegistryToWindow` picks it up).
+ */
+function makeCapturingModule(
+  id: string,
+  events: readonly string[],
+): { module: FeatureModule; fire: (event: string, payload: unknown) => void } {
+  const subscribers = new Map<string, (payload: unknown) => void>();
+  const module = defineFeatureModule<Record<string, unknown>>({
+    id,
+    displayName: id,
+    events,
+    init: () => undefined,
+    dispose: () => undefined,
+    on: (event, handler) => {
+      subscribers.set(event as string, handler as (payload: unknown) => void);
+      return () => subscribers.delete(event as string);
+    },
+  });
+  return { module, fire: (event, payload) => subscribers.get(event)?.(payload) };
+}
+
+describe('bindRegistryToWindow', () => {
+  it('auto-wires every registered module’s declared events to the window', () => {
+    const { window, sent } = makeFakeWindow();
+    const metro = makeCapturingModule('metro', ['log', 'status']);
+    const logs = makeCapturingModule('unified-log', ['log']);
+    const registry = new ModuleRegistry();
+    registry.register(metro.module, { processes: {} as never });
+    registry.register(logs.module, { processes: {} as never });
+
+    const off = bindRegistryToWindow(registry, window, () => 111);
+    metro.fire('log', { text: 'hi' });
+    logs.fire('log', { text: 'unified' });
+
+    expect(sent).toEqual([
+      { channel: 'module.metro.event.log', payload: { timestampMs: 111, payload: { text: 'hi' } } },
+      {
+        channel: 'module.unified-log.event.log',
+        payload: { timestampMs: 111, payload: { text: 'unified' } },
+      },
+    ]);
+    off();
+  });
+
+  it('skips modules that declare no events (command-only)', () => {
+    const { window, sent } = makeFakeWindow();
+    const devices = makeCapturingModule('devices', []);
+    const registry = new ModuleRegistry();
+    registry.register(devices.module, { processes: {} as never });
+
+    bindRegistryToWindow(registry, window);
+    // Even if something tried to fire, nothing was subscribed for an empty list.
+    devices.fire('anything', 1);
+    expect(sent).toEqual([]);
+  });
+
+  it('the returned unsubscribe detaches every module’s bridge', () => {
+    const { window, sent } = makeFakeWindow();
+    const metro = makeCapturingModule('metro', ['log']);
+    const registry = new ModuleRegistry();
+    registry.register(metro.module, { processes: {} as never });
+
+    const off = bindRegistryToWindow(registry, window, () => 0);
+    off();
+    metro.fire('log', { text: 'after-unbind' });
+    expect(sent).toEqual([]);
   });
 });

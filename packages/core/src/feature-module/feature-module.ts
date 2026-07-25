@@ -52,6 +52,14 @@ export interface FeatureModule<Events extends Record<string, unknown> = Record<s
   /** Human-readable name for the UI. */
   readonly displayName: string;
   /**
+   * The runtime list of event names this module emits via `on(...)`. The
+   * TypeScript `Events` map is erased at runtime, so the registry needs this
+   * explicit list to auto-wire IPC channels (TD-15): a runtime with no way to
+   * enumerate `keyof Events` can't bind a module's events generically. A module
+   * with no event stream (e.g. command-only `devices`) declares `[]`.
+   */
+  readonly events: readonly (keyof Events & string)[];
+  /**
    * Start the module. Should be cheap to call (no I/O if the module has nothing
    * to do until the user acts). The runtime may call init() more than once across
    * the app's lifetime (e.g. after a settings change); the module must be idempotent.
@@ -77,6 +85,8 @@ export interface FeatureModule<Events extends Record<string, unknown> = Record<s
 export function defineFeatureModule<Events extends Record<string, unknown>>(spec: {
   id: string;
   displayName: string;
+  /** Event names the module emits. Defaults to `[]` for command-only modules. */
+  events?: readonly (keyof Events & string)[];
   init: (ctx: ModuleContext) => Promise<void> | void;
   dispose: () => Promise<void> | void;
   on: <K extends keyof Events>(event: K, handler: (payload: Events[K]) => void) => () => void;
@@ -84,6 +94,7 @@ export function defineFeatureModule<Events extends Record<string, unknown>>(spec
   return {
     id: spec.id,
     displayName: spec.displayName,
+    events: spec.events ?? [],
     init: spec.init,
     dispose: spec.dispose,
     on: spec.on,
