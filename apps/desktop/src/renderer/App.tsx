@@ -68,6 +68,8 @@ export function App(): ReactElement {
       <p style={{ color: '#57606a', marginTop: 0 }}>Walking skeleton</p>
       <DoctorSection />
       <hr style={{ margin: '28px 0', border: 0, borderTop: '1px solid #eaeef2' }} />
+      <AutoAttachToggle />
+      <hr style={{ margin: '28px 0', border: 0, borderTop: '1px solid #eaeef2' }} />
       <MetroSection />
       <hr style={{ margin: '28px 0', border: 0, borderTop: '1px solid #eaeef2' }} />
       <DevicesSection />
@@ -596,6 +598,53 @@ function UnifiedRow({ entry }: { entry: UnifiedLogEntryOut }): ReactElement {
       <span style={{ color: LEVEL_COLOR[entry.level] ?? '#24292f' }}>[{entry.level}]</span>{' '}
       {entry.text}
     </div>
+  );
+}
+
+function AutoAttachToggle(): ReactElement {
+  const [enabled, setEnabled] = useState<boolean>(true);
+  const [userDisconnected, setUserDisconnected] = useState<boolean>(false);
+
+  useEffect(() => {
+    void window.icarus.autoAttachGet().then((s) => {
+      setEnabled(s.enabled);
+      setUserDisconnected(s.userDisconnected);
+    });
+  }, []);
+
+  const onToggle = useCallback(async (next: boolean) => {
+    setEnabled(next);
+    await window.icarus.autoAttachSet({ enabled: next });
+    if (next) setUserDisconnected(false);
+    // Re-fetch to reflect server-side state.
+    const s = await window.icarus.autoAttachGet();
+    setEnabled(s.enabled);
+    setUserDisconnected(s.userDisconnected);
+  }, []);
+
+  return (
+    <section>
+      <h2 style={{ fontSize: 16 }}>Auto-attach (TD-16)</h2>
+      <p style={{ color: '#57606a', marginTop: 0, fontSize: 13 }}>
+        When Metro is ready and a simulator is booted, Icarus auto-connects CDP so the "app running
+        + live logs" flow is one click from the user's side.
+      </p>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
+          <input
+            type="checkbox"
+            checked={enabled}
+            onChange={(e) => void onToggle(e.target.checked)}
+          />
+          <span style={{ fontWeight: 600 }}>Enable auto-attach</span>
+        </label>
+        {userDisconnected && enabled && (
+          <span style={{ color: STATUS_COLOR.warn, fontSize: 12 }}>
+            (paused — you clicked Disconnect. Re-enable above to resume.)
+          </span>
+        )}
+      </div>
+    </section>
   );
 }
 

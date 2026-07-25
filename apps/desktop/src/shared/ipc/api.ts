@@ -13,6 +13,8 @@ import type {
   MetroStatusEvent,
 } from './contracts.js';
 import type {
+  AutoAttachSetInput,
+  AutoAttachStatus,
   DevicesBootInput,
   DevicesInstallInput,
   DevicesLaunchInput,
@@ -77,6 +79,11 @@ export interface IcarusApi {
     eventName: string,
     handler: (envelope: { timestampMs: number; payload: T }) => void,
   ): Unsubscribe;
+
+  /** Get the current auto-attach status (TD-16). */
+  autoAttachGet(): Promise<AutoAttachStatus>;
+  /** Set the auto-attach enabled flag. Resetting to enabled also clears the user-disconnected flag. */
+  autoAttachSet(input: AutoAttachSetInput): Promise<void>;
 }
 
 declare global {

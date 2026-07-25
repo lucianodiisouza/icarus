@@ -30,11 +30,13 @@ import {
   type MetroStartOutput,
   type MetroStatusEvent,
 } from '../shared/ipc/contracts.js';
+import { z } from 'zod';
 import { registerHandlers } from './ipc/handlers.js';
 import { IpcRouter } from './ipc/router.js';
 import { CdpSession } from './cdp/cdp-session.js';
 import { startCdpProxy } from './cdp/ws-proxy.js';
 import { wsSocketFactory } from './cdp/ws-socket-factory.js';
+import { AutoAttach } from './auto-attach.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -143,6 +145,10 @@ router.register(
   CHANNELS.CDP_DISCONNECT,
   cdpDisconnectInputSchema,
   async (): Promise<CdpCommandOutput> => {
+    // Mark the user as "I clicked Disconnect" so the auto-attach policy
+    // (TD-16) doesn't fire on the next Metro-ready event. The user can
+    // re-enable it from the renderer's auto-attach toggle.
+    autoAttach.markUserDisconnected();
     await cdpSession?.disconnect();
     return { status: 'disconnected' };
   },
@@ -192,6 +198,43 @@ router.register(
     return { pid };
   },
 );
+
+// --- auto-attach (TD-16) ---
+let autoAttachEnabled = true;
+const autoAttach = new AutoAttach({
+  isMetroReady: () => metro.status === 'ready',
+  firstBootedSimUdid: () => devices.devices.find((d) => d.state === 'Booted')?.udid ?? null,
+  cdpConnect: async () => {
+    if (cdpSession) await cdpSession.connect();
+  },
+  isCdpBusy: () => cdpSession?.status === 'connecting' || cdpSession?.status === 'connected',
+  isEnabled: () => autoAttachEnabled,
+  setEnabled: (enabled) => {
+    autoAttachEnabled = enabled;
+  },
+});
+
+router.register(CHANNELS.AUTO_ATTACH_GET, z.void(), async () => ({
+  enabled: autoAttachEnabled,
+  userDisconnected: autoAttach.userDisconnected,
+}));
+router.register(
+  CHANNELS.AUTO_ATTACH_SET,
+  z.object({ enabled: z.boolean() }),
+  async ({ enabled }) => {
+    autoAttachEnabled = enabled;
+    if (enabled) autoAttach.clearUserDisconnected();
+  },
+);
+
+// Wire the auto-attach orchestrator. It subscribes to Metro status changes
+// (the only live "trigger" event we have today) and re-evaluates the policy
+// each time. The device-list subscription is a no-op until DevicesController
+// exposes an onList event (see TD-16 follow-ups).
+autoAttach.start({
+  onMetroStatusChange: (handler) => metro.onStatus(handler),
+  onDevicesListChange: () => () => undefined,
+});
 
 function buildMetroStatusEvent(): MetroStatusEvent {
   return {

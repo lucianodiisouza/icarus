@@ -1,5 +1,10 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron';
-import { CHANNELS, EVENTS, type AppEchoInput } from '../shared/ipc/contracts.js';
+import {
+  CHANNELS,
+  EVENTS,
+  type AppEchoInput,
+  type AutoAttachSetInput,
+} from '../shared/ipc/contracts.js';
 import type {
   CdpLogEvent,
   CdpNetworkEventOut,
@@ -47,6 +52,8 @@ const api: IcarusApi = {
     eventName: string,
     handler: (envelope: { timestampMs: number; payload: T }) => void,
   ) => subscribe(`module.${moduleId}.event.${eventName}`, handler),
+  autoAttachGet: () => ipcRenderer.invoke(CHANNELS.AUTO_ATTACH_GET),
+  autoAttachSet: (input: AutoAttachSetInput) => ipcRenderer.invoke(CHANNELS.AUTO_ATTACH_SET, input),
 };
 
 contextBridge.exposeInMainWorld('icarus', api);
