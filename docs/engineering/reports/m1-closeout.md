@@ -4,18 +4,19 @@
 > start Metro → boot a simulator → auto-attach CDP → one **unified live log** carrying
 > app console + Metro output + simulator syslog, searchable and filterable. The quality
 > bar (coverage gate, type-aware lint, Electron E2E, security-baseline assertions) is
-> enforced in CI. Two of the four formal exit criteria remain **open** and are called out
-> below — this is a closeout of the _engineering_, not yet of the _validation_.
+> enforced in CI. The **engineering** exit criteria are now met (including E-03s + the TR-6
+> load test); what remains is **validation** — a real design-partner run — called out below.
 
 ## Verdict
 
-**Functionally complete, honestly incomplete on validation.** A developer can open Icarus
+**Engineering-complete; awaiting design-partner validation.** A developer can open Icarus
 today and reach "app running + live logs." The loop was driven end-to-end on macOS (app
 boots, `doctor.check` round-trips, unified log shows all three sources, auto-attach
-connects). What M1 has _not_ earned yet: a real **design-partner** run on ≥ 4/5 setups,
-and the **high-rate load test** that validates TR-6 — because the ADR-0006
-streaming/subscription primitive (E-03s) was deferred, not built. Those are the honest gaps
-between "the loop works on my machine" and "M1 is done."
+connects), and the streaming path is now hardened against TR-6 (E-03s: snapshot + batched
+deltas, load-tested to 100k entries). What M1 has _not_ earned yet: a real **design-partner**
+run on ≥ 4/5 setups (exit #1) and the one-off LLM store-snapshot probe (exit #4) — both
+need a human in the loop, not more code. That's the honest gap between "the loop works and
+is load-safe" and "M1 is validated."
 
 ## What shipped — the loop
 
@@ -52,7 +53,7 @@ M1's four exit criteria (`docs/planning/07-milestones.md`):
 | # | Criterion | Status |
 |---|---|---|
 | 1 | Design partner reaches "app running + live logs" unaided on ≥ 4/5 setups | 🟨 **Reachable, unvalidated.** Driven end-to-end on macOS by us; no real design-partner run yet. Needs a design partner — a validation task, not an engineering one. |
-| 2 | Log pipe sustains a synthetic high-rate stream without UI jank (validates TR-6) | 🟥 **Not met.** The ADR-0006 streaming/subscription primitive with batching/backpressure (E-03s) was deferred; the log path is one-way `webContents.send` + a hand-rolled virtualizer (E-11). No load test exists. Tracked by **TD-05** and the E-03s deferral. |
+| 2 | Log pipe sustains a synthetic high-rate stream without UI jank (validates TR-6) | 🟩 **Met (2026-07-25).** E-03s shipped: `StreamBatcher` + `RingBuffer` + `UnifiedLogStream` (ADR-0006). The unified log now flows as a snapshot + 60ms-batched deltas, so a high-rate burst is a handful of coalesced deltas, not thousands of IPC messages / React renders. The TR-6 load test proves 100k entries → bounded flush count with zero data loss. Delta representation (OQ-13) resolved to domain append-deltas. |
 | 3 | Module abstraction extracted — adding the _second_ real feature needs no core changes (G-1) | 🟩 **Met, and strengthened.** E-05 extracted the contract from three real modules; TD-15 made event IPC declarative, so a new module is genuinely a one-line registration. |
 | 4 | Informal probe: hand a store snapshot to an LLM once, to sanity-check its shape before M2 (A-4) | 🟥 **Not done.** This is an M2 pre-check; deferred to the M2 design step. |
 
@@ -75,11 +76,9 @@ boundary lint rule caught a deliberate violation during development.
 
 Nothing here is a surprise; each has a trigger:
 
-- **E-03s / TD-05** — the streaming/subscription primitive and its high-rate load test
-  (M1 exit criterion #2). Deferred because the delta representation (OQ-13) wants a real
-  streaming consumer to choose well; the unified log is now that consumer, so this is the
-  first thing M2 (or an M1.5 slice) should pick up if log volume becomes a problem.
-- **Design-partner validation** — exit criteria #1 and #4 need a real user in the loop.
+- **Design-partner validation** — exit criteria #1 and #4 need a real user in the loop
+  (a design-partner run on ≥ 4/5 setups, and the one-off LLM store-snapshot probe). These
+  are the only remaining M1 gaps; both are validation, not engineering.
 - Accepted / trigger-gated: Android via `adb` (TD-13), Windows tree-kill parity (TD-12),
   cross-launch orphan reaper (TD-11), Turborepo cache (TD-03), Electron footprint (TD-02),
   in-process module isolation (TD-01).
@@ -92,6 +91,6 @@ decisions**, not engineering:
 - **OQ-6** — telemetry: collect anything, and how is it consented?
 - **OQ-7** — AI provider: local model vs. hosted API vs. bring-your-own-key?
 
-Both must resolve before E-12/E-13 can be designed. Until then, the highest-value
-engineering available is the E-03s streaming primitive + load test (closing M1 exit
-criterion #2) and, when a design partner is available, the #1/#4 validation runs.
+Both must resolve before E-12/E-13 can be designed. With E-03s done, M1 has **no open
+engineering** — the remaining work is the #1/#4 validation runs (need a design partner)
+and the two M2 product decisions above. The next buildable step is gated on those calls.

@@ -20,7 +20,7 @@ Status: 🔴 open · 🟡 investigating · 🟢 resolved (with link to the ADR/d
 | OQ-10 | Package granularity for feature modules (one pkg each vs grouped) | 🔴 | First real module | ADR-0001. |
 | OQ-11 | Min acceptable footprint/memory before Electron is a blocker | 🔴 | Needs real user feedback | ADR-0002 / TR-7. |
 | OQ-12 | Renderer styling system & component/virtualization lib | 🔴 | First UI Epic | ADR-0005. |
-| OQ-13 | Delta representation for store→UI (JSON patch vs domain diffs) | 🔴 | First streaming feature | ADR-0006. |
+| OQ-13 | Delta representation for store→UI (JSON patch vs domain diffs) | 🟢 | — | **Resolved 2026-07-25: domain deltas** (E-03s). The first streaming feature (unified log) is append-only, so the delta is one shape — `{ appended: entries[] }` — plus a bounded-ring snapshot. JSON-patch/structural-diff machinery buys nothing here; revisit only if a non-append-only slice needs it. [ADR-0006](../adr/ADR-0006-ipc-and-state.md). |
 | OQ-14 | Icarus + user's own RN DevTools coexistence on one app | 🟢 | — | **Resolved: multiplexing proxy required** (Hermes = 1 connection, confirmed empirically). Build in M1. |
 | OQ-15 | How much native-tooling (adb/simctl) is CI-testable vs manual | 🔴 | As those Epics land | Doc 14. |
 | OQ-16 | Repo host / CI provider | 🟢 | — | **Resolved 2026-07-25: GitHub + GitHub Actions.** Doc 15. |

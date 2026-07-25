@@ -13,6 +13,7 @@ import {
   ModuleRegistry,
   ProcessManager,
   UnifiedLogController,
+  UnifiedLogStream,
 } from '@icarus/core';
 import {
   CHANNELS,
@@ -25,6 +26,7 @@ import {
   EVENTS,
   metroStartInputSchema,
   metroStopInputSchema,
+  SUBSCRIPTIONS,
   type CdpCommandOutput,
   type DevicesLaunchOutput,
   type DevicesListOutput,
@@ -70,6 +72,21 @@ const devices = new DevicesController({ processes });
 const unified = new UnifiedLogController();
 
 /**
+ * The renderer-facing unified-log view as a snapshot + batched-delta subscription
+ * (E-03s, ADR-0006). This replaces the per-entry push for logs: a high-rate burst
+ * (metro build spam, a chatty app) becomes a handful of coalesced deltas rather
+ * than thousands of IPC messages + React renders (TR-6). Window: 60ms (≤ ~16
+ * renderer updates/sec); snapshot retains the last 2000 entries.
+ */
+const logStream = new UnifiedLogStream(unified, {
+  snapshotCapacity: 2000,
+  windowMs: 60,
+  maxBatch: 500,
+});
+/** Per-window unsubscribe handles, keyed by `webContents.id`. */
+const logSubscriptions = new Map<number, () => void>();
+
+/**
  * The single ModuleRegistry (TD-15, E-05 follow-up). Owns the lifecycle of
  * every FeatureModule in the app. Each module's `init(ctx)` is called on
  * registration; `disposeAll()` runs on app exit (wired below). The 3 existing
@@ -112,11 +129,13 @@ function wireProcessTeardown(): void {
     // a reference to a process when we tear it down.
     unbindMetroFanIn();
     void syslogFanIn.stop();
+    logStream.dispose();
     void registry.disposeAll().finally(() => processes.disposeAll());
   });
   const onSignal = (): void => {
     unbindMetroFanIn();
     void syslogFanIn.stop();
+    logStream.dispose();
     void registry.disposeAll().finally(() => processes.disposeAll().finally(() => process.exit(0)));
   };
   process.once('SIGINT', onSignal);
@@ -273,6 +292,31 @@ function bindIpc(): void {
   }
 }
 
+/**
+ * Bind the unified-log subscription (E-03s). Unlike query/command channels this
+ * is per-window — it needs the calling `webContents` to push deltas to — so it is
+ * bound directly here with `event.sender`, not through the window-agnostic router.
+ * Subscribing returns the current snapshot and starts batched deltas; the sub is
+ * torn down on explicit stop or when the window's `webContents` is destroyed.
+ */
+function bindSubscriptions(): void {
+  const stop = (id: number): void => {
+    logSubscriptions.get(id)?.();
+    logSubscriptions.delete(id);
+  };
+  ipcMain.handle(SUBSCRIPTIONS.UNIFIED_LOG, (event) => {
+    const wc = event.sender;
+    stop(wc.id); // replace any prior subscription for this window (e.g. a reload)
+    const off = logStream.subscribe((delta) => {
+      if (!wc.isDestroyed()) wc.send(EVENTS.UNIFIED_LOG_DELTA, delta);
+    });
+    logSubscriptions.set(wc.id, off);
+    wc.once('destroyed', () => stop(wc.id));
+    return logStream.snapshot();
+  });
+  ipcMain.handle(SUBSCRIPTIONS.UNIFIED_LOG_STOP, (event) => stop(event.sender.id));
+}
+
 function applyContentSecurityPolicy(): void {
   // CSP (ADR-0004). Prod is strict (own bundled assets only, no remote code). Dev must
   // allow the Vite dev server's inline React-refresh preamble + HMR websocket, otherwise
@@ -333,6 +377,7 @@ void app.whenReady().then(() => {
   applyContentSecurityPolicy();
   wireProcessTeardown();
   bindIpc();
+  bindSubscriptions();
   createWindow();
 
   app.on('activate', () => {

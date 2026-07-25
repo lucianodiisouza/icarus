@@ -50,6 +50,21 @@ export const CHANNELS = {
 export type ChannelName = (typeof CHANNELS)[keyof typeof CHANNELS];
 
 /**
+ * Subscription primitive (E-03s, ADR-0006) — the third IPC vocabulary after
+ * query/command. A subscription is per-window (it needs the calling
+ * `webContents` to push deltas to), so it is NOT routed through the
+ * window-agnostic `IpcRouter`; it is bound directly with access to `event.sender`.
+ *
+ * `UNIFIED_LOG` (invoke): starts the subscription for the calling window and
+ * returns the current snapshot. `UNIFIED_LOG_STOP` (invoke): ends it. Deltas
+ * arrive on the one-way `EVENTS.UNIFIED_LOG_DELTA` channel.
+ */
+export const SUBSCRIPTIONS = {
+  UNIFIED_LOG: 'subscribe:unifiedLog',
+  UNIFIED_LOG_STOP: 'unsubscribe:unifiedLog',
+} as const;
+
+/**
  * One-way main → renderer push channels (streamed via webContents.send, not the
  * request/response router). This is the first streaming IPC — justified by a real stream
  * (live logs), per ADR-0009.
@@ -63,6 +78,8 @@ export const EVENTS = {
   CDP_LOG: 'event:cdp.log',
   CDP_STATUS: 'event:cdp.status',
   CDP_NETWORK: 'event:cdp.network',
+  /** Batched append-deltas for the unified-log subscription (E-03s). */
+  UNIFIED_LOG_DELTA: 'event:unifiedLog.delta',
 } as const;
 
 export type CdpConnectionStatus =
@@ -131,6 +148,14 @@ export type DevicesListOutput = SimDevice[];
 // --- E-10 unified log event ---
 export type { UnifiedLogEntry };
 export type UnifiedLogEntryOut = UnifiedLogEntry;
+
+// --- E-03s unified-log subscription (snapshot + batched deltas) ---
+/** Initial snapshot returned by `SUBSCRIPTIONS.UNIFIED_LOG` — recent history. */
+export type UnifiedLogSnapshot = readonly UnifiedLogEntryOut[];
+/** A batched append-delta pushed on `EVENTS.UNIFIED_LOG_DELTA`. */
+export interface UnifiedLogDeltaOut {
+  readonly appended: readonly UnifiedLogEntryOut[];
+}
 
 export const devicesBootInputSchema = z.object({
   udid: z.string().min(1),

@@ -41,4 +41,21 @@ test.describe('Icarus desktop app', () => {
     // stable assertion that the report body — not just the header — populated.
     await expect(window.getByText('Node.js', { exact: false })).toBeVisible();
   });
+
+  test('unified-log subscription round-trips (E-03s snapshot)', async () => {
+    const window = await app.firstWindow();
+    // The subscribe primitive must resolve with a snapshot array through the full
+    // renderer → preload → ipcMain → UnifiedLogStream path. (Empty on a fresh app
+    // with no logs yet — we assert the shape, i.e. the wiring, not content.)
+    const snapshotIsArray = await window.evaluate(async () => {
+      const icarus = (globalThis as Record<string, unknown>)['icarus'] as {
+        unifiedLogSubscribe: () => Promise<unknown[]>;
+        unifiedLogUnsubscribe: () => Promise<void>;
+      };
+      const snapshot = await icarus.unifiedLogSubscribe();
+      await icarus.unifiedLogUnsubscribe();
+      return Array.isArray(snapshot);
+    });
+    expect(snapshotIsArray).toBe(true);
+  });
 });

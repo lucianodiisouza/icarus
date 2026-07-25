@@ -21,7 +21,11 @@ export function createUnifiedLogModule(
   return defineFeatureModule<UnifiedLogModuleEvents>({
     id: 'unified-log',
     displayName: 'Unified log pipeline',
-    events: ['log'],
+    // No per-event IPC push: the renderer consumes the log via the E-03s
+    // snapshot+delta subscription (UnifiedLogStream), not the generic per-entry
+    // module-event bridge. The module stays for lifecycle (dispose forwards to
+    // the controller); its `on('log')` remains available for other consumers.
+    events: [],
     init: () => {
       // Idempotent: clear any prior subscription before re-init.
       unsubscriber?.();

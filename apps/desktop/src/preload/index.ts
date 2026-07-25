@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron';
 import {
   CHANNELS,
   EVENTS,
+  SUBSCRIPTIONS,
   type AppEchoInput,
   type AutoAttachSetInput,
 } from '../shared/ipc/contracts.js';
@@ -10,6 +11,7 @@ import type {
   CdpNetworkEventOut,
   CdpStatusEvent,
   MetroStartInput,
+  UnifiedLogDeltaOut,
 } from '../shared/ipc/contracts.js';
 import type { IcarusApi, Unsubscribe } from '../shared/ipc/api.js';
 
@@ -44,6 +46,10 @@ const api: IcarusApi = {
     eventName: string,
     handler: (envelope: { timestampMs: number; payload: T }) => void,
   ) => subscribe(`module.${moduleId}.event.${eventName}`, handler),
+  unifiedLogSubscribe: () => ipcRenderer.invoke(SUBSCRIPTIONS.UNIFIED_LOG),
+  unifiedLogUnsubscribe: () => ipcRenderer.invoke(SUBSCRIPTIONS.UNIFIED_LOG_STOP),
+  onUnifiedLogDelta: (handler: (delta: UnifiedLogDeltaOut) => void) =>
+    subscribe(EVENTS.UNIFIED_LOG_DELTA, handler),
   autoAttachGet: () => ipcRenderer.invoke(CHANNELS.AUTO_ATTACH_GET),
   autoAttachSet: (input: AutoAttachSetInput) => ipcRenderer.invoke(CHANNELS.AUTO_ATTACH_SET, input),
 };
