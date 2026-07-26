@@ -144,6 +144,10 @@ export type { AIProvider, AiRequest, AiChunk } from './ai/provider.js';
 export { askAssistant, collectAnswer, DEFAULT_SYSTEM_PROMPT } from './ai/assistant.js';
 export type { AskAssistantDeps, AssistantExchange } from './ai/assistant.js';
 
+// Secure BYOK key storage (E-13, T-13.3): OS-encrypted, never plaintext, never transmitted.
+export { EncryptedKeyStore } from './ai/key-store.js';
+export type { KeyStore, Encryptor } from './ai/key-store.js';
+
 // Streaming primitive (E-03s, ADR-0006): snapshot + batched deltas with backpressure.
 export { StreamBatcher } from './streaming/stream-batcher.js';
 export type { StreamBatcherOptions } from './streaming/stream-batcher.js';
