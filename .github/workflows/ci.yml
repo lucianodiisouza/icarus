@@ -13,8 +13,10 @@ concurrency:
 jobs:
   verify:
     name: verify (typecheck · lint · format · test · build)
-    # ubuntu is fast/cheap and enough while there is no iOS/native tooling yet.
-    # macOS runners are added when device tooling (simctl/adb) lands (NG-7 / Doc 15).
+    # ubuntu-only on purpose: these checks are platform-agnostic (TS typecheck, lint,
+    # format, unit tests with injected executors, bundling). The platform-sensitive
+    # coverage lives in the `e2e` job, which runs on macOS too (TD-04) — that's where a
+    # real Electron launch and the reaper's real `ps`/`kill` actually differ by OS.
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -60,9 +62,18 @@ jobs:
   e2e:
     name: e2e (Electron smoke — app launch + doctor round-trip)
     # A separate job because it needs the real Electron binary (the `verify` job
-    # skips the download) and a virtual display. First display-enabled job in CI
-    # (TD-07); pays down the "app-launch unverified in CI" gap.
-    runs-on: ubuntu-latest
+    # skips the download) and, on Linux, a virtual display. First display-enabled job
+    # in CI (TD-07); pays down the "app-launch unverified in CI" gap.
+    #
+    # Runs on both Linux and macOS (TD-04). macOS is our first-class target (NG-7), so
+    # a real Electron launch there — plus the reaper E2E exercising macOS `ps -o lstart=`
+    # and `kill(-pgid)` end-to-end — is the platform coverage ubuntu can't give. macOS
+    # runners bill ~10× Linux, so only this platform-sensitive suite runs there.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
@@ -94,15 +105,23 @@ jobs:
           "require('node:child_process').execFileSync(process.execPath,
           [require.resolve('electron/install.js')], { stdio: 'inherit' })"
 
-      - name: Install Electron/Chromium system libs + xvfb
+      - name: Install Electron/Chromium system libs + xvfb (Linux only)
         # Playwright's dep installer pulls the shared libraries Electron's Chromium
         # needs (libnss3, libgbm, libatk, …) plus xvfb — maintained across Ubuntu
-        # versions, so we don't hand-maintain an apt list.
+        # versions, so we don't hand-maintain an apt list. macOS ships these + a real
+        # display, so this step (and xvfb) are Linux-only.
+        if: runner.os == 'Linux'
         run: pnpm --filter @icarus/desktop exec playwright install-deps
 
       - name: Build (bundles main/preload/renderer)
         run: pnpm -r build
 
-      - name: E2E (Electron under xvfb)
-        # xvfb-run gives the headless runner a virtual X display for the window.
+      - name: E2E (Linux, under xvfb)
+        # xvfb-run gives the headless Linux runner a virtual X display for the window.
+        if: runner.os == 'Linux'
         run: xvfb-run -a pnpm --filter @icarus/desktop test:e2e
+
+      - name: E2E (macOS)
+        # macOS runners have a display; launch Electron directly, no xvfb.
+        if: runner.os == 'macOS'
+        run: pnpm --filter @icarus/desktop test:e2e
