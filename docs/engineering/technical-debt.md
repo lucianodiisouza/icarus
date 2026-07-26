@@ -83,9 +83,11 @@ Deferred work, logged so it isn't lost:
 | TD-20 | **E-14 charter items not yet shipped**: Android via adb (see TD-13); large-payload framing (upstream RN #56471, not our problem); OQ-21 Origin allowlist drift (RN-side config) | See E-14 charter | See E-14 charter | 🟥 planned |
 | TD-21 | **Metro + native-syslog not fanned into the unified log** | Only `unified.pushCdp` was wired; `pushMetro`/`pushNative` had no caller, so the (now-live, per TD-15) unified panel showed CDP console entries only | Discovered wiring TD-15 | 🟩 **resolved 2026-07-25**: `wireMetroIntoUnified` fans `metro.onLog → unified.pushMetro` (2 tests); native iOS syslog landed via **TD-18** (`SyslogFanIn` → `unified.pushNative`). The unified panel now shows **all three** sources — CDP console, Metro output, and simulator syslog — the full E-10 vision. |
 
-M1 → M2 gate: M2 (AI data boundary + assistant) is blocked on **OQ-6** (telemetry consent
-policy) and **OQ-7** (AI provider choice: local / API / BYOK). Both must resolve before
-E-12 / E-13 can start designing.
+M1 → M2 gate: **CLEARED 2026-07-25.** M2 (AI data boundary + assistant) was blocked on
+**OQ-6** (telemetry consent) and **OQ-7** (AI provider choice). Both are now resolved —
+opt-in anonymous telemetry ([ADR-0010](../adr/ADR-0010-telemetry-opt-in.md)) and a
+swappable BYOK-Claude-first provider ([ADR-0011](../adr/ADR-0011-ai-provider-byok-swappable.md)).
+E-12 / E-13 are unblocked to start designing.
 
 The entries above are debts the _plan itself_ knowingly incurs. Real code will add more.
 Nothing here is a surprise — each maps to a documented decision (ADR) or non-goal, which

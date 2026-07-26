@@ -30,6 +30,8 @@ tested first.
 | [0007](ADR-0007-feature-module-architecture.md) | In-process plugin-shaped feature modules | Proposed | |
 | [0008](ADR-0008-debugger-protocol-cdp.md) | Debugger protocol: Origin-authed CDP via Metro inspector (hybrid) | **Accepted** (validated by M0 spike) | [Spike report](../engineering/reports/cdp-spike-report.md) |
 | [0009](ADR-0009-defer-abstractions-rule-of-three.md) | Defer streaming/module-SDK abstractions (rule of three) | Proposed | From [Review #1](../engineering/17-architecture-review-2026-07-25.md) |
+| [0010](ADR-0010-telemetry-opt-in.md) | Telemetry: opt-in, anonymous, never debug data | **Accepted** | Resolves OQ-6; unblocks M2 |
+| [0011](ADR-0011-ai-provider-byok-swappable.md) | AI provider: swappable interface, BYOK-Claude first, local later | **Accepted** | Resolves OQ-7; unblocks M2 (E-12/E-13) |
 
 ## Template
 
