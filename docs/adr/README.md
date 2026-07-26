@@ -32,6 +32,7 @@ tested first.
 | [0009](ADR-0009-defer-abstractions-rule-of-three.md) | Defer streaming/module-SDK abstractions (rule of three) | Proposed | From [Review #1](../engineering/17-architecture-review-2026-07-25.md) |
 | [0010](ADR-0010-telemetry-opt-in.md) | Telemetry: opt-in, anonymous, never debug data | **Accepted** | Resolves OQ-6; unblocks M2 |
 | [0011](ADR-0011-ai-provider-byok-swappable.md) | AI provider: swappable interface, BYOK-Claude first, local later | **Accepted** | Resolves OQ-7; unblocks M2 (E-12/E-13) |
+| [0012](ADR-0012-unified-log-persistence.md) | Unified-log persistence: bounded, local-only, cleared on clean exit | **Accepted** | Resolves OQ-9; pays down TD-19 |
 
 ## Template
 

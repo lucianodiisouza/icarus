@@ -43,6 +43,7 @@ import { bindRegistryToWindow } from './feature-module-bridge.js';
 import { wireMetroIntoUnified } from './unified-fan-in.js';
 import { SyslogFanIn } from './syslog-fan-in.js';
 import { createOrphanRegistry, reapOrphansFromPreviousRun } from './orphan-reaper.js';
+import { createUnifiedLogPersistence, restoreUnifiedLog } from './log-persistence.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -93,6 +94,9 @@ const logStream = new UnifiedLogStream(unified, {
 /** Per-window unsubscribe handles, keyed by `webContents.id`. */
 const logSubscriptions = new Map<number, () => void>();
 
+/** Unified-log disk persistence (TD-19, OQ-9): bounded crash-recoverable tail; see ADR-0012. */
+const logPersistence = createUnifiedLogPersistence(app.getPath('userData'), unified);
+
 /**
  * The single ModuleRegistry (TD-15, E-05 follow-up). Owns the lifecycle of
  * every FeatureModule in the app. Each module's `init(ctx)` is called on
@@ -129,22 +133,19 @@ const syslogFanIn = new SyslogFanIn({
 });
 
 function wireProcessTeardown(): void {
-  app.on('will-quit', () => {
-    // Detach the Metro→unified fan-in, then dispose the module registry
-    // (releases per-module subscriptions), then the ProcessManager (kills any
-    // live child processes). The order matters: a module might still be holding
-    // a reference to a process when we tear it down.
+  // Shared teardown: detach the Metro→unified fan-in and syslog, dispose the log stream,
+  // clear the persisted log tail (clean exit → no debug-log footprint, TD-19), then dispose
+  // the module registry and finally the ProcessManager. Order matters: a module might still
+  // hold a reference to a process when we tear it down.
+  const teardown = (): Promise<void> => {
     unbindMetroFanIn();
     void syslogFanIn.stop();
     logStream.dispose();
-    void registry.disposeAll().finally(() => processes.disposeAll());
-  });
-  const onSignal = (): void => {
-    unbindMetroFanIn();
-    void syslogFanIn.stop();
-    logStream.dispose();
-    void registry.disposeAll().finally(() => processes.disposeAll().finally(() => process.exit(0)));
+    void logPersistence.clear();
+    return registry.disposeAll().finally(() => processes.disposeAll());
   };
+  app.on('will-quit', () => void teardown());
+  const onSignal = (): void => void teardown().finally(() => process.exit(0));
   process.once('SIGINT', onSignal);
   process.once('SIGTERM', onSignal);
 }
@@ -384,6 +385,7 @@ void app.whenReady().then(async () => {
   applyContentSecurityPolicy();
   wireProcessTeardown();
   await reapOrphansFromPreviousRun(orphanRegistry);
+  await restoreUnifiedLog(logPersistence, unified); // restore crash tail, then capture (TD-19)
   bindIpc();
   bindSubscriptions();
   createWindow();

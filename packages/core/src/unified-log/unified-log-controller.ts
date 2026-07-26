@@ -52,6 +52,15 @@ export class UnifiedLogController {
     return this.#emit(entry);
   }
 
+  /**
+   * Re-emit already-fused entries (e.g. a persisted tail restored after a crash, TD-19).
+   * Unlike the `push*` methods these are not re-fused or re-timestamped — they flow through
+   * the stream exactly as captured, so a reopened window's snapshot shows prior history.
+   */
+  replay(entries: readonly UnifiedLogEntry[]): void {
+    for (const entry of entries) this.#emit(entry);
+  }
+
   #emit(entry: UnifiedLogEntry): UnifiedLogEntry {
     for (const h of [...this.#handlers]) h(entry);
     return entry;
