@@ -119,6 +119,12 @@ export type {
 } from './unified-log/unified-log.js';
 export type { UnifiedEntryHandler } from './unified-log/unified-log-controller.js';
 
+// Unified-log disk persistence (TD-19, OQ-9): bounded, local-only, crash-recoverable.
+export { UnifiedLogPersistence } from './unified-log/log-persistence.js';
+export type { UnifiedLogPersistenceOptions } from './unified-log/log-persistence.js';
+export { fileStore } from './persistence/file-store.js';
+export type { FileStore } from './persistence/file-store.js';
+
 // Streaming primitive (E-03s, ADR-0006): snapshot + batched deltas with backpressure.
 export { StreamBatcher } from './streaming/stream-batcher.js';
 export type { StreamBatcherOptions } from './streaming/stream-batcher.js';

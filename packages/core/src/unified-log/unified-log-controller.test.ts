@@ -49,6 +49,28 @@ describe('UnifiedLogController', () => {
     expect(handler).toHaveBeenCalledTimes(1);
   });
 
+  it('replay re-emits already-fused entries verbatim (no re-fuse/re-timestamp) — TD-19', () => {
+    const controller = new UnifiedLogController();
+    const handler = vi.fn();
+    controller.onEntry(handler);
+
+    const restored = [
+      {
+        source: 'metro' as const,
+        level: 'warn' as const,
+        text: 'from a past session',
+        timestampMs: 111,
+      },
+      { source: 'cdp' as const, level: 'error' as const, text: 'earlier crash', timestampMs: 222 },
+    ];
+    controller.replay(restored);
+
+    expect(handler).toHaveBeenCalledTimes(2);
+    // Emitted exactly as captured — timestamps and source preserved.
+    expect(handler.mock.calls[0]?.[0]).toEqual(restored[0]);
+    expect(handler.mock.calls[1]?.[0]).toEqual(restored[1]);
+  });
+
   it('onEntry returns an unsubscribe that stops further delivery', () => {
     const controller = new UnifiedLogController();
     const handler = vi.fn();
