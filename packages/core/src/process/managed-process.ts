@@ -70,6 +70,11 @@ export class ManagedProcess {
     return this.#child.pid;
   }
 
+  /** The command this process was spawned with (diagnostics; e.g. orphan-registry records). */
+  get command(): string {
+    return this.#spec.command;
+  }
+
   /** Resolves when the process is ready (readyWhen matched) or running (if no probe). */
   waitReady(): Promise<void> {
     return this.#readyPromise;

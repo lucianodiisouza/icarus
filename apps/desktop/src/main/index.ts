@@ -42,15 +42,22 @@ import { AutoAttach } from './auto-attach.js';
 import { bindRegistryToWindow } from './feature-module-bridge.js';
 import { wireMetroIntoUnified } from './unified-fan-in.js';
 import { SyslogFanIn } from './syslog-fan-in.js';
+import { createOrphanRegistry, reapOrphansFromPreviousRun } from './orphan-reaper.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 /**
- * The single ProcessManager for the app. Nothing spawns through it yet (M1's metro/devices
- * modules will), but its teardown is wired to app exit now so the "no orphans" guarantee
- * (G-2, TR-2) holds the moment the first process is spawned.
+ * Cross-launch orphan registry (TD-11). Persists every spawned process group to `userData`
+ * so a survivor of a hard crash can be reaped at the next launch (see `orphan-reaper.ts`).
  */
-const processes = new ProcessManager();
+const orphanRegistry = createOrphanRegistry(app.getPath('userData'));
+
+/**
+ * The single ProcessManager for the app. Every Metro/devices/simctl spawn goes through it,
+ * so the "no orphans" guarantee (G-2, TR-2) holds in one place — clean-exit teardown via
+ * `disposeAll()` (wired below) and hard-crash survivors via the cross-launch reaper.
+ */
+const processes = new ProcessManager({ registry: orphanRegistry });
 
 /**
  * The single MetroController (E-08). One Metro at a time per app. Spawned by the same
@@ -373,9 +380,10 @@ function createWindow(): void {
   }
 }
 
-void app.whenReady().then(() => {
+void app.whenReady().then(async () => {
   applyContentSecurityPolicy();
   wireProcessTeardown();
+  await reapOrphansFromPreviousRun(orphanRegistry);
   bindIpc();
   bindSubscriptions();
   createWindow();
