@@ -139,6 +139,11 @@ export type {
 export { buildAiSendPayload, serializeContext } from './ai/boundary/send-payload.js';
 export type { SendPayload } from './ai/boundary/send-payload.js';
 
+// AI provider seam (E-13, ADR-0011) + the grounded-assistant orchestrator.
+export type { AIProvider, AiRequest, AiChunk } from './ai/provider.js';
+export { askAssistant, collectAnswer, DEFAULT_SYSTEM_PROMPT } from './ai/assistant.js';
+export type { AskAssistantDeps, AssistantExchange } from './ai/assistant.js';
+
 // Streaming primitive (E-03s, ADR-0006): snapshot + batched deltas with backpressure.
 export { StreamBatcher } from './streaming/stream-batcher.js';
 export type { StreamBatcherOptions } from './streaming/stream-batcher.js';
