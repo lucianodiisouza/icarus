@@ -125,6 +125,10 @@ export type { UnifiedLogPersistenceOptions } from './unified-log/log-persistence
 export { fileStore } from './persistence/file-store.js';
 export type { FileStore } from './persistence/file-store.js';
 
+// AI data-boundary (E-12): the redaction pass — scrubs secrets/PII before anything can be sent.
+export { redact } from './ai/redaction/redact.js';
+export type { RedactionCategory, RedactionHit, RedactionResult } from './ai/redaction/redact.js';
+
 // Streaming primitive (E-03s, ADR-0006): snapshot + batched deltas with backpressure.
 export { StreamBatcher } from './streaming/stream-batcher.js';
 export type { StreamBatcherOptions } from './streaming/stream-batcher.js';
