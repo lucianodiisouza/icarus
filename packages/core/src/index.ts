@@ -128,6 +128,16 @@ export type { FileStore } from './persistence/file-store.js';
 // AI data-boundary (E-12): the redaction pass — scrubs secrets/PII before anything can be sent.
 export { redact } from './ai/redaction/redact.js';
 export type { RedactionCategory, RedactionHit, RedactionResult } from './ai/redaction/redact.js';
+export { aggregateHits } from './ai/boundary/report.js';
+export type { RedactionReport } from './ai/boundary/report.js';
+export { buildContextBundle } from './ai/boundary/context-bundle.js';
+export type {
+  ContextBundle,
+  ContextBundleInput,
+  ContextBundleOptions,
+} from './ai/boundary/context-bundle.js';
+export { buildAiSendPayload, serializeContext } from './ai/boundary/send-payload.js';
+export type { SendPayload } from './ai/boundary/send-payload.js';
 
 // Streaming primitive (E-03s, ADR-0006): snapshot + batched deltas with backpressure.
 export { StreamBatcher } from './streaming/stream-batcher.js';
