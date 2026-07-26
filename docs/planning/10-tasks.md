@@ -1,8 +1,11 @@
 # 10 — Tasks (Milestone M0)
 
-Per our elaboration policy ([Epics](08-epics.md)), **only M0 is decomposed to task
-level.** Later milestones stay as Epic outlines until committed — decomposing M2/M3 now
-would be fake certainty, especially since M2 depends on the M1 CDP spike outcome.
+Per our elaboration policy ([Epics](08-epics.md)), a milestone is decomposed to task level
+**when it is committed** — decomposing ahead of that would be fake certainty. This doc holds
+the **M0** decomposition. Later decompositions live in their own committed plan docs:
+M0 primitives in [20](../engineering/20-m0-primitives-plan.md), and **M2 (AI assistant) in
+[21 — M2 Plan](../engineering/21-m2-ai-assistant-plan.md)** (committed once OQ-6/OQ-7/OQ-9
+resolved and E-10 landed).
 
 Estimates are **relative sizes (S ≈ ≤½ day, M ≈ 1–2 days, L ≈ 3–5 days)**, not dates.
 Each task notes its Epic and any dependency. Tasks are ordered to keep `main` releasable

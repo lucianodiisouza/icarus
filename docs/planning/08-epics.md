@@ -188,9 +188,11 @@ IDs kept where they still carry meaning.
   "what gets sent" surface. **Out:** the assistant reasoning itself (E-13).
 - **Depends on:** E-10 (real context to reason over).
 - **Key risk:** TR-5 data leakage — this epic *is* the mitigation.
-- **Open questions:** OQ-6 (telemetry), OQ-7 (local vs API vs BYO-key) — must resolve here.
-- **DoD sketch:** what-gets-sent is visible and user-controllable; redaction in place;
-  OQ-6/OQ-7 resolved via ADR.
+- **Open questions:** OQ-6 (telemetry) → [ADR-0010](../adr/ADR-0010-telemetry-opt-in.md),
+  OQ-7 (provider) → [ADR-0011](../adr/ADR-0011-ai-provider-byok-swappable.md) — both
+  **resolved**; M2 is committed.
+- **DoD sketch:** what-gets-sent is visible and user-controllable; redaction in place.
+- **Decomposed in:** [21 — M2 Plan, Part A](../engineering/21-m2-ai-assistant-plan.md).
 
 ### E-13 — Grounded assistant (thin slice)
 - **Goal:** An assistant that reads a `DebugContextStore` snapshot and answers questions
@@ -200,9 +202,10 @@ IDs kept where they still carry meaning.
 - **Depends on:** E-12 (safe boundary first).
 - **Key risk:** PR-2 (over-promising the AI) — mitigated by shipping only when it answers
   with data the user didn't paste.
-- **Open questions:** carried from E-12 (OQ-7 provider).
+- **Open questions:** OQ-7 (provider) → [ADR-0011](../adr/ADR-0011-ai-provider-byok-swappable.md), **resolved**.
 - **DoD sketch:** assistant answers using data the user did not manually paste; stays
   within the E-12 data boundary.
+- **Decomposed in:** [21 — M2 Plan, Part B](../engineering/21-m2-ai-assistant-plan.md).
 
 ---
 
