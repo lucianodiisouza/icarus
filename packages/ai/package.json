@@ -1,0 +1,29 @@
+{
+  "name": "@icarus/ai",
+  "version": "0.0.0",
+  "private": true,
+  "description": "AI provider implementations for Icarus (E-13, ADR-0011). Isolates @anthropic-ai/sdk and the only network egress behind @icarus/core's swappable AIProvider interface. Electron-free.",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --coverage",
+    "test:watch": "vitest",
+    "build": "tsc"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.68.0",
+    "@icarus/core": "workspace:*"
+  },
+  "devDependencies": {
+    "@icarus/config": "workspace:*",
+    "@types/node": "^22.9.0",
+    "@vitest/coverage-v8": "^2.1.9",
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.8"
+  }
+}
