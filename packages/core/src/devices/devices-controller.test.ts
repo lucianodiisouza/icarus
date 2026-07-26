@@ -93,4 +93,51 @@ describe('DevicesController', () => {
     const controller = makeController(executor);
     await expect(controller.install('UDID-1', '/bad.app')).rejects.toThrow(/exited with code=1/);
   });
+
+  it('onList() fires on list() and boot() refreshes (TD-16 auto-attach trigger)', async () => {
+    const executor = makeFakeExecutor({
+      listDevices: vi
+        .fn<() => Promise<string>>()
+        .mockResolvedValueOnce(SAMPLE_DEVICES_JSON)
+        .mockResolvedValueOnce(SAMPLE_AFTER_BOOT_JSON),
+    });
+    const controller = makeController(executor);
+    const seen: string[][] = [];
+    controller.onList((devices) => seen.push(devices.map((d) => d.udid)));
+
+    await controller.list(); // refresh → emit
+    await controller.boot('UDID-1'); // re-list → emit
+
+    expect(seen).toEqual([
+      ['UDID-1', 'UDID-2'],
+      ['UDID-1', 'UDID-2'],
+    ]);
+  });
+
+  it('onList() does not emit on a cache hit (only real refreshes)', async () => {
+    const executor = makeFakeExecutor();
+    const controller = makeController(executor);
+    const handler = vi.fn();
+
+    await controller.list(); // populates + emits once
+    controller.onList(handler); // subscribe after first populate
+    await controller.list(); // cache hit → no executor call, no emit
+
+    expect(handler).not.toHaveBeenCalled();
+    expect(executor.listDevices).toHaveBeenCalledTimes(1);
+  });
+
+  it('onList() returns an unsubscribe that stops further notifications', async () => {
+    const executor = makeFakeExecutor();
+    const controller = makeController(executor);
+    const handler = vi.fn();
+
+    const off = controller.onList(handler);
+    await controller.list({ refresh: true });
+    expect(handler).toHaveBeenCalledTimes(1);
+
+    off();
+    await controller.list({ refresh: true });
+    expect(handler).toHaveBeenCalledTimes(1); // no further calls after unsubscribe
+  });
 });

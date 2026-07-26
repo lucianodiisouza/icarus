@@ -279,13 +279,13 @@ router.register(
   },
 );
 
-// Wire the auto-attach orchestrator. It subscribes to Metro status changes
-// (the only live "trigger" event we have today) and re-evaluates the policy
-// each time. The device-list subscription is a no-op until DevicesController
-// exposes an onList event (see TD-16 follow-ups).
+// Wire the auto-attach orchestrator. It re-evaluates the policy on each live
+// "trigger": a Metro status change, or a device-inventory change (a sim boots/
+// appears — TD-16 follow-up). `onList` maps the device set to udids; a non-empty
+// set re-runs the policy, which then picks the first booted sim.
 autoAttach.start({
   onMetroStatusChange: (handler) => metro.onStatus(handler),
-  onDevicesListChange: () => () => undefined,
+  onDevicesListChange: (handler) => devices.onList((list) => handler(list.map((d) => d.udid))),
 });
 
 /** Bind every registered channel to ipcMain.handle, routing through the validated router. */
