@@ -16,6 +16,7 @@ export { DebugContextStore } from './context-store/debug-context-store.js';
 
 // Process manager (G-2, TR-2)
 export { ProcessManager } from './process/process-manager.js';
+export type { ProcessManagerOptions } from './process/process-manager.js';
 export { ManagedProcess } from './process/managed-process.js';
 export { LineStream } from './process/line-stream.js';
 export type {
@@ -27,6 +28,23 @@ export type {
   StopOptions,
   StreamName,
 } from './process/types.js';
+
+// Cross-launch orphan reaper (TR-2, TD-11)
+export { FileOrphanRegistry, reapOrphans } from './process/orphan-registry.js';
+export type {
+  OrphanRecord,
+  OrphanRegistry,
+  OrphanSpawn,
+  ProcessIdentityProbe,
+  KillGroup,
+  RegistryStore,
+  ReapReport,
+} from './process/orphan-registry.js';
+export {
+  psIdentityProbe,
+  killProcessGroup,
+  fileRegistryStore,
+} from './process/os-process-probe.js';
 
 // CDP transport (E-14, ADR-0008)
 export { CdpClient, CdpError, httpOriginFromWsUrl } from './protocol/cdp/cdp-client.js';

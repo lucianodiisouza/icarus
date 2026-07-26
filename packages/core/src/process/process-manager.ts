@@ -1,5 +1,14 @@
 import { ManagedProcess } from './managed-process.js';
+import type { OrphanRegistry } from './orphan-registry.js';
 import type { ProcessSpec } from './types.js';
+
+export interface ProcessManagerOptions {
+  /**
+   * Optional cross-launch orphan registry (TD-11). When provided, each POSIX-group spawn is
+   * persisted and cleared on exit, so a survivor of a hard crash can be reaped next launch.
+   */
+  readonly registry?: OrphanRegistry;
+}
 
 /**
  * Owns every child process Icarus spawns and guarantees teardown (G-2, TR-2). Nothing
@@ -9,6 +18,11 @@ import type { ProcessSpec } from './types.js';
  */
 export class ProcessManager {
   readonly #processes = new Map<string, ManagedProcess>();
+  readonly #registry: OrphanRegistry | undefined;
+
+  constructor(options: ProcessManagerOptions = {}) {
+    this.#registry = options.registry;
+  }
 
   /** Spawn and register a supervised process. Ids must be unique. */
   spawn(spec: ProcessSpec): ManagedProcess {
@@ -17,9 +31,24 @@ export class ProcessManager {
     }
     const proc = new ManagedProcess(spec);
     this.#processes.set(proc.id, proc);
+    this.#track(proc);
     // Stop tracking once it exits so the registry doesn't grow unbounded.
-    proc.onExit(() => this.#processes.delete(proc.id));
+    proc.onExit(() => {
+      this.#processes.delete(proc.id);
+      if (proc.pid !== undefined) this.#registry?.onExit(proc.pid);
+    });
     return proc;
+  }
+
+  /**
+   * Persist the spawn for cross-launch reaping. Only POSIX detached spawns form their own
+   * process group (pgid === pid); on Windows there's no group to record (NG-7), so skip.
+   */
+  #track(proc: ManagedProcess): void {
+    if (this.#registry === undefined || process.platform === 'win32') return;
+    const pid = proc.pid;
+    if (pid === undefined) return;
+    this.#registry.onSpawn({ pid, pgid: pid, command: proc.command });
   }
 
   get(id: string): ManagedProcess | undefined {

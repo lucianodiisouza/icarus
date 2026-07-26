@@ -1,5 +1,6 @@
 import { fileURLToPath } from 'node:url';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { OrphanRegistry } from './orphan-registry.js';
 import { ProcessManager } from './process-manager.js';
 
 const FIXTURE = fileURLToPath(new URL('./__fixtures__/long-lived.mjs', import.meta.url));
@@ -105,6 +106,26 @@ describe('ProcessManager / ManagedProcess', () => {
     expect(info.forced).toBe(true);
     expect(await waitUntil(() => !isAlive(pid))).toBe(true);
   });
+
+  it(
+    'records spawns in the orphan registry and clears them on exit (TD-11)',
+    { timeout: 15000 },
+    async () => {
+      const registry: OrphanRegistry = { onSpawn: vi.fn(), onExit: vi.fn() };
+      manager = new ProcessManager({ registry });
+      const proc = manager.spawn({ command: NODE, args: [FIXTURE] });
+      await proc.waitReady();
+      const pid = proc.pid!;
+
+      expect(registry.onSpawn).toHaveBeenCalledTimes(1);
+      expect(registry.onSpawn).toHaveBeenCalledWith({ pid, pgid: pid, command: NODE });
+      expect(registry.onExit).not.toHaveBeenCalled();
+
+      await proc.stop();
+
+      expect(registry.onExit).toHaveBeenCalledWith(pid);
+    },
+  );
 
   it('rejects duplicate ids', () => {
     manager = new ProcessManager();
