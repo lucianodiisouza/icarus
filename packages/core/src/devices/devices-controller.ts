@@ -26,6 +26,7 @@ export class DevicesController {
   readonly #deps: DevicesControllerDeps;
   #executor: SimctlExecutor | null = null;
   #devices: SimDevice[] = [];
+  readonly #listHandlers = new Set<(devices: readonly SimDevice[]) => void>();
 
   constructor(deps: DevicesControllerDeps) {
     this.#deps = deps;
@@ -39,7 +40,7 @@ export class DevicesController {
     if (!options.refresh && this.#devices.length > 0) return this.#devices;
     const executor = this.executor;
     const json = await executor.listDevices();
-    this.#devices = parseSimctlListDevices(json).filter((d) => d.isAvailable);
+    this.#setDevices(parseSimctlListDevices(json).filter((d) => d.isAvailable));
     return this.#devices;
   }
 
@@ -50,12 +51,30 @@ export class DevicesController {
     // so the UI sees the new state on the next list(). Done best-effort; failure here
     // is non-fatal (the user can refresh manually).
     try {
-      this.#devices = parseSimctlListDevices(await this.executor.listDevices()).filter(
-        (d) => d.isAvailable,
+      this.#setDevices(
+        parseSimctlListDevices(await this.executor.listDevices()).filter((d) => d.isAvailable),
       );
     } catch {
       /* swallow */
     }
+  }
+
+  /**
+   * Subscribe to inventory changes (E-09). Fires whenever `list()`/`boot()` refreshes the
+   * device set — the live "trigger" the auto-attach policy (TD-16) needs to react to a
+   * simulator appearing/booting. Returns an unsubscribe.
+   */
+  onList(handler: (devices: readonly SimDevice[]) => void): () => void {
+    this.#listHandlers.add(handler);
+    return () => {
+      this.#listHandlers.delete(handler);
+    };
+  }
+
+  /** Replace the cached inventory and notify `onList` subscribers. */
+  #setDevices(devices: SimDevice[]): void {
+    this.#devices = devices;
+    for (const handler of this.#listHandlers) handler(this.#devices);
   }
 
   /** Install an .app bundle onto a simulator. */
