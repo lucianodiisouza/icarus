@@ -94,6 +94,11 @@ _(Epic E-10, E-11; G-5, TR-6.)_
 
 ## M3 — AI (persona: P1 Dev)
 
+> **Roadmap note:** this section's "M3 — AI" is the **roadmap's milestone M2** (this doc's
+> milestone labels run one ahead of [07-milestones.md](07-milestones.md) / [08-epics.md](08-epics.md)).
+> These two stories are the committed M2 stories; their task-level decomposition is
+> [21 — M2 Plan](../engineering/21-m2-ai-assistant-plan.md).
+
 ### US-11 — Ask questions about what my app is doing
 _As a **Dev**, I want to ask the assistant to interpret my logs/errors using context it
 already has, so that I don't copy-paste into a chat window._
