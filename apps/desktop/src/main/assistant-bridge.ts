@@ -1,5 +1,5 @@
 import {
-  askAssistant,
+  askWithPayload,
   buildAiSendPayload,
   buildContextBundle,
   type AIProvider,
@@ -70,24 +70,24 @@ export class AssistantBridge {
   }
 
   /**
-   * The exact redacted payload that *would* be sent for this question — for the "what gets
-   * sent" surface (T-12.5). Pure over the boundary; needs no key and sends nothing.
+   * The exact redacted payload that *would* be sent for this question — the reviewable "what gets
+   * sent" bytes the user approves before any send (T-12.5). Pure over the boundary; needs no key
+   * and sends nothing. The caller holds the returned payload and hands it back to `send`, so the
+   * user sends exactly what they reviewed — not context captured after the review.
    */
   preview(options: AssistantOptions): SendPayload {
     return buildAiSendPayload(this.#bundle(options));
   }
 
   /**
-   * Ask the assistant: build the redacted payload, call the provider, and return the payload
-   * (what was sent) plus the streamed answer. Throws `NoApiKeyError` when no key is set — the
-   * boundary is still the only door to the provider.
+   * Send an already-reviewed payload to the provider and stream the grounded answer (T-12.5). The
+   * payload must be one produced by `preview` — this is the consent-gated send. Throws
+   * `NoApiKeyError` if no key is set (e.g. cleared between review and send).
    */
-  async ask(
-    options: AssistantOptions,
-  ): Promise<{ payload: SendPayload; answer: AsyncIterable<AiChunk> }> {
+  async send(payload: SendPayload): Promise<AsyncIterable<AiChunk>> {
     const key = await this.deps.keyStore.get();
     if (key === null) throw new NoApiKeyError();
-    return askAssistant(this.#bundle(options), { provider: this.deps.makeProvider(key) });
+    return askWithPayload(payload, { provider: this.deps.makeProvider(key) });
   }
 
   #bundle(options: AssistantOptions) {

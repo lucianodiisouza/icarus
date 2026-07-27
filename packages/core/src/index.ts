@@ -141,7 +141,12 @@ export type { SendPayload } from './ai/boundary/send-payload.js';
 
 // AI provider seam (E-13, ADR-0011) + the grounded-assistant orchestrator.
 export type { AIProvider, AiRequest, AiChunk } from './ai/provider.js';
-export { askAssistant, collectAnswer, DEFAULT_SYSTEM_PROMPT } from './ai/assistant.js';
+export {
+  askAssistant,
+  askWithPayload,
+  collectAnswer,
+  DEFAULT_SYSTEM_PROMPT,
+} from './ai/assistant.js';
 export type { AskAssistantDeps, AssistantExchange } from './ai/assistant.js';
 
 // Secure BYOK key storage (E-13, T-13.3): OS-encrypted, never plaintext, never transmitted.

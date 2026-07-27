@@ -43,12 +43,25 @@ export interface AssistantExchange {
  */
 export function askAssistant(bundle: ContextBundle, deps: AskAssistantDeps): AssistantExchange {
   const payload = buildAiSendPayload(bundle); // the ONLY door to a provider
-  const answer = deps.provider.ask({
+  return { payload, answer: askWithPayload(payload, deps) };
+}
+
+/**
+ * Ask the provider with an **already-built** payload — the consent-gated send path (E-12 T-12.5).
+ * This adds no new door to a provider: a `SendPayload` can only be produced by `buildAiSendPayload`
+ * (the boundary), so deferring its send to after the user approves it changes *when* it's sent,
+ * never *what*. That's what lets the user review the exact redacted bytes and then send those same
+ * bytes — the send can't silently pick up context captured after the review.
+ */
+export function askWithPayload(
+  payload: SendPayload,
+  deps: AskAssistantDeps,
+): AsyncIterable<AiChunk> {
+  return deps.provider.ask({
     system: deps.system ?? DEFAULT_SYSTEM_PROMPT,
     content: payload.text,
     ...(deps.model !== undefined ? { model: deps.model } : {}),
   });
-  return { payload, answer };
 }
 
 /** Collect a streamed answer into a single string (for non-streaming callers and tests). */

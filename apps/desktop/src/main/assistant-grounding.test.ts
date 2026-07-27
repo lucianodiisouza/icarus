@@ -60,8 +60,9 @@ describe('assistant grounding (E-13 T-13.7 · G-6 / PR-2 gate)', () => {
       networkSnapshot: () => [],
     });
 
-    const { payload, answer } = await bridge.ask({ question });
-    const text = await collectAnswer(answer);
+    // The consent-gated path: review the exact bytes, then send those same bytes.
+    const payload = bridge.preview({ question });
+    const text = await collectAnswer(await bridge.send(payload));
 
     // Guard the premise: the error text is not in the question, so any grounding is non-pasted.
     expect(question).not.toContain('TypeError');

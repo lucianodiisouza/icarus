@@ -89,7 +89,7 @@ describe('AssistantBridge', () => {
     expect(noLogs.text).toContain('Network');
   });
 
-  it('ask routes the redacted payload through the boundary to the provider', async () => {
+  it('send routes the reviewed payload through the boundary to the provider', async () => {
     const { provider, lastContent } = echoProvider();
     const bridge = makeBridge({
       keyStore: fakeKeyStore('sk-user-key'),
@@ -97,25 +97,24 @@ describe('AssistantBridge', () => {
       logSnapshot: () => [log('secret sk-abcdefghijklmnop1234 here')],
     });
 
-    const { payload, answer } = await bridge.ask({ question: 'debug' });
-    const text = await collectAnswer(answer);
+    const payload = bridge.preview({ question: 'debug' });
+    const text = await collectAnswer(await bridge.send(payload));
 
-    expect(lastContent()).toBe(payload.text);
+    expect(lastContent()).toBe(payload.text); // exactly the reviewed bytes were sent
     expect(lastContent()).not.toContain('sk-abcdefghijklmnop1234'); // redacted before it left
     expect(text).toBe('answer');
   });
 
-  it('ask builds the provider from the stored key', async () => {
+  it('send builds the provider from the stored key', async () => {
     const makeProvider = vi.fn(() => echoProvider().provider);
     const bridge = makeBridge({ keyStore: fakeKeyStore('sk-THE-KEY'), makeProvider });
-    await collectAnswer((await bridge.ask({ question: 'q' })).answer);
+    await collectAnswer(await bridge.send(bridge.preview({ question: 'q' })));
     expect(makeProvider).toHaveBeenCalledWith('sk-THE-KEY');
   });
 
-  it('ask throws NoApiKeyError when no key is set (assistant stays disabled)', async () => {
-    await expect(
-      makeBridge({ keyStore: fakeKeyStore(null) }).ask({ question: 'q' }),
-    ).rejects.toThrow(NoApiKeyError);
+  it('send throws NoApiKeyError when no key is set (assistant stays disabled)', async () => {
+    const bridge = makeBridge({ keyStore: fakeKeyStore(null) });
+    await expect(bridge.send(bridge.preview({ question: 'q' }))).rejects.toThrow(NoApiKeyError);
   });
 
   it('setKey / clearKey delegate to the key store', async () => {
