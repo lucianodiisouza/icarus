@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react';
+import { AssistantSection } from './AssistantSection.js';
 import type { DoctorCheckOutput } from '../shared/ipc/contracts.js';
 import type {
   CdpConnectionStatus,
@@ -75,6 +76,8 @@ export function App(): ReactElement {
       <DevicesSection />
       <hr style={{ margin: '28px 0', border: 0, borderTop: '1px solid #eaeef2' }} />
       <UnifiedLogSection />
+      <hr style={{ margin: '28px 0', border: 0, borderTop: '1px solid #eaeef2' }} />
+      <AssistantSection />
       <hr style={{ margin: '28px 0', border: 0, borderTop: '1px solid #eaeef2' }} />
       <LiveLogsSection />
       <hr style={{ margin: '28px 0', border: 0, borderTop: '1px solid #eaeef2' }} />

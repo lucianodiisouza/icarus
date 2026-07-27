@@ -19,6 +19,13 @@ import type {
   DevicesListOutput,
   UnifiedLogSnapshot,
   UnifiedLogDeltaOut,
+  AiKeyStatus,
+  AiKeySetInput,
+  AiAskInput,
+  AiPreviewInput,
+  AiChunkEvent,
+  AiErrorEvent,
+  SendPayload,
 } from './contracts.js';
 
 export type Unsubscribe = () => void;
@@ -90,6 +97,27 @@ export interface IcarusApi {
   autoAttachGet(): Promise<AutoAttachStatus>;
   /** Set the auto-attach enabled flag. Resetting to enabled also clears the user-disconnected flag. */
   autoAttachSet(input: AutoAttachSetInput): Promise<void>;
+
+  // --- AI assistant (E-12 / E-13) ---
+  /** Is a BYOK key set, and is secure storage available to store one? */
+  aiKeyStatus(): Promise<AiKeyStatus>;
+  /** Store the BYOK API key (encrypted). Rejects if secure storage is unavailable. */
+  aiKeySet(input: AiKeySetInput): Promise<void>;
+  /** Clear the stored BYOK key. */
+  aiKeyClear(): Promise<void>;
+  /** The exact redacted payload that would be sent for a question — the "what gets sent" preview. */
+  aiPreview(input: AiPreviewInput): Promise<SendPayload>;
+  /**
+   * Ask the assistant. Resolves with the redacted `SendPayload` that was sent, then streams
+   * the answer via `onAiChunk` (+ `onAiDone` / `onAiError`). A new ask cancels any in-flight one.
+   */
+  aiAsk(input: AiAskInput): Promise<SendPayload>;
+  /** Receive streamed answer fragments. Returns an unsubscribe. */
+  onAiChunk(handler: (chunk: AiChunkEvent) => void): Unsubscribe;
+  /** Notified when the answer stream completes. */
+  onAiDone(handler: () => void): Unsubscribe;
+  /** Notified when the answer stream fails (includes the no-key case). */
+  onAiError(handler: (error: AiErrorEvent) => void): Unsubscribe;
 }
 
 declare global {

@@ -45,6 +45,14 @@ export const CHANNELS = {
   AUTO_ATTACH_GET: 'query:autoAttach.get',
   /** Command: set the auto-attach enabled flag. */
   AUTO_ATTACH_SET: 'command:autoAttach.set',
+  /** Query: assistant key status — is a BYOK key set, is secure storage available (E-13). */
+  AI_KEY_STATUS: 'query:ai.keyStatus',
+  /** Command: store the BYOK API key (encrypted). Rejects if secure storage is unavailable. */
+  AI_KEY_SET: 'command:ai.keySet',
+  /** Command: clear the stored BYOK key. */
+  AI_KEY_CLEAR: 'command:ai.keyClear',
+  /** Query: the exact redacted payload that would be sent for a question (E-12 "what gets sent"). */
+  AI_PREVIEW: 'query:ai.preview',
 } as const;
 
 export type ChannelName = (typeof CHANNELS)[keyof typeof CHANNELS];
@@ -62,6 +70,12 @@ export type ChannelName = (typeof CHANNELS)[keyof typeof CHANNELS];
 export const SUBSCRIPTIONS = {
   UNIFIED_LOG: 'subscribe:unifiedLog',
   UNIFIED_LOG_STOP: 'unsubscribe:unifiedLog',
+  /**
+   * Ask the assistant (E-13). Per-window like the log subscription: invoke returns the exact
+   * redacted `SendPayload` that was sent, then the streamed answer arrives on `EVENTS.AI_CHUNK`
+   * / `AI_DONE` / `AI_ERROR`. A new ask cancels any in-flight one for the window.
+   */
+  AI_ASK: 'subscribe:ai.ask',
 } as const;
 
 /**
@@ -80,6 +94,12 @@ export const EVENTS = {
   CDP_NETWORK: 'event:cdp.network',
   /** Batched append-deltas for the unified-log subscription (E-03s). */
   UNIFIED_LOG_DELTA: 'event:unifiedLog.delta',
+  /** A streamed fragment of the assistant's answer (E-13). */
+  AI_CHUNK: 'event:ai.chunk',
+  /** The assistant answer stream finished. */
+  AI_DONE: 'event:ai.done',
+  /** The assistant answer stream failed (or no key). */
+  AI_ERROR: 'event:ai.error',
 } as const;
 
 export type CdpConnectionStatus =
@@ -188,3 +208,34 @@ export const autoAttachSetInputSchema = z.object({
   enabled: z.boolean(),
 });
 export type AutoAttachSetInput = z.infer<typeof autoAttachSetInputSchema>;
+
+// --- AI assistant (E-12 / E-13) ---
+export type { SendPayload, RedactionReport, RedactionCategory } from '@icarus/core';
+export const aiKeyStatusInputSchema = z.void();
+export interface AiKeyStatus {
+  readonly hasKey: boolean;
+  readonly secureStorageAvailable: boolean;
+}
+export const aiKeySetInputSchema = z.object({ key: z.string().min(1).max(500) });
+export type AiKeySetInput = z.infer<typeof aiKeySetInputSchema>;
+export const aiKeyClearInputSchema = z.void();
+
+/** The question + category toggles (T-12.6), shared by `ai.preview` and `ai.ask`. */
+export const aiAskInputSchema = z.object({
+  question: z.string().min(1).max(2000),
+  includeLogs: z.boolean().optional(),
+  includeNetwork: z.boolean().optional(),
+});
+export type AiAskInput = z.infer<typeof aiAskInputSchema>;
+export const aiPreviewInputSchema = aiAskInputSchema;
+export type AiPreviewInput = AiAskInput;
+
+/** A streamed fragment of the answer (EVENTS.AI_CHUNK). */
+export interface AiChunkEvent {
+  readonly text: string;
+}
+/** A failed answer stream (EVENTS.AI_ERROR). `noKey` distinguishes the "add a key" state. */
+export interface AiErrorEvent {
+  readonly message: string;
+  readonly noKey: boolean;
+}

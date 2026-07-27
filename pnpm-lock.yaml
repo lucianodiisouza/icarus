@@ -26,6 +26,9 @@ importers:
 
   apps/desktop:
     dependencies:
+      '@icarus/ai':
+        specifier: workspace:*
+        version: link:../../packages/ai
       '@icarus/core':
         specifier: workspace:*
         version: link:../../packages/core

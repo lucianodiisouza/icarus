@@ -14,6 +14,7 @@
     "start": "electron-vite preview"
   },
   "dependencies": {
+    "@icarus/ai": "workspace:*",
     "@icarus/core": "workspace:*",
     "ws": "^8.18.0",
     "zod": "^3.23.8"

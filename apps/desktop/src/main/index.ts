@@ -2,12 +2,10 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { app, BrowserWindow, ipcMain, session } from 'electron';
 import {
-  CdpClient,
   createDevicesModule,
   createMetroModule,
   createUnifiedLogModule,
   DevicesController,
-  discoverProxies,
   IosSyslogSource,
   MetroController,
   ModuleRegistry,
@@ -17,8 +15,6 @@ import {
 } from '@icarus/core';
 import {
   CHANNELS,
-  cdpConnectInputSchema,
-  cdpDisconnectInputSchema,
   devicesBootInputSchema,
   devicesInstallInputSchema,
   devicesLaunchInputSchema,
@@ -27,7 +23,6 @@ import {
   metroStartInputSchema,
   metroStopInputSchema,
   SUBSCRIPTIONS,
-  type CdpCommandOutput,
   type DevicesLaunchOutput,
   type DevicesListOutput,
   type MetroStartOutput,
@@ -35,15 +30,14 @@ import {
 import { z } from 'zod';
 import { registerHandlers } from './ipc/handlers.js';
 import { IpcRouter } from './ipc/router.js';
-import { CdpSession } from './cdp/cdp-session.js';
-import { startCdpProxy } from './cdp/ws-proxy.js';
-import { wsSocketFactory } from './cdp/ws-socket-factory.js';
 import { AutoAttach } from './auto-attach.js';
 import { bindRegistryToWindow } from './feature-module-bridge.js';
 import { wireMetroIntoUnified } from './unified-fan-in.js';
 import { SyslogFanIn } from './syslog-fan-in.js';
 import { createOrphanRegistry, reapOrphansFromPreviousRun } from './orphan-reaper.js';
 import { createUnifiedLogPersistence, restoreUnifiedLog } from './log-persistence.js';
+import { bindAssistantAsk, createAssistant, registerAssistantChannels } from './assistant-ipc.js';
+import { createCdpController, registerCdpChannels } from './cdp-ipc.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -96,6 +90,16 @@ const logSubscriptions = new Map<number, () => void>();
 
 /** Unified-log disk persistence (TD-19, OQ-9): bounded crash-recoverable tail; see ADR-0012. */
 const logPersistence = createUnifiedLogPersistence(app.getPath('userData'), unified);
+
+/**
+ * The AI assistant (E-13, T-13.5): every question crosses the E-12 boundary before egress, the
+ * BYOK key is OS-encrypted, and `@icarus/ai` is the only model egress. Built in `assistant-ipc`
+ * to keep this entry thin; `captureNetworkEvent` feeds its bounded context from the CDP stream.
+ */
+const { assistant, captureNetworkEvent } = createAssistant({
+  userDataPath: app.getPath('userData'),
+  logSnapshot: () => logStream.snapshot(),
+});
 
 /**
  * The single ModuleRegistry (TD-15, E-05 follow-up). Owns the lifecycle of
@@ -160,50 +164,11 @@ const router = new IpcRouter();
 registerHandlers(router);
 
 /**
- * The live CDP session (E-14). Created once a window exists (its onLog/onStatus push to
- * that window's renderer). The connect/disconnect commands drive it.
+ * The live CDP session (E-14), wired in `cdp-ipc` to keep this entry thin. One session per window;
+ * the connect/disconnect commands and the auto-attach policy drive it through the controller.
  */
-let cdpSession: CdpSession | undefined;
-
-function createCdpSession(window: BrowserWindow): CdpSession {
-  const push = (channel: string, payload: unknown): void => {
-    if (!window.isDestroyed()) window.webContents.send(channel, payload);
-  };
-  return new CdpSession({
-    discover: async () => (await discoverProxies()).flatMap((proxy) => proxy.targets),
-    startProxy: (upstreamUrl) => startCdpProxy({ upstreamUrl }),
-    createClient: (downstreamUrl) =>
-      new CdpClient(downstreamUrl, { socketFactory: wsSocketFactory }),
-    onLog: (entry) => {
-      push(EVENTS.CDP_LOG, entry);
-      // Fan in to the unified log stream (E-10).
-      unified.pushCdp(entry);
-    },
-    onNetwork: (event) => push(EVENTS.CDP_NETWORK, event),
-    onStatus: (event) => push(EVENTS.CDP_STATUS, event),
-  });
-}
-
-router.register(
-  CHANNELS.CDP_CONNECT,
-  cdpConnectInputSchema,
-  async (): Promise<CdpCommandOutput> => {
-    await cdpSession?.connect();
-    return { status: cdpSession?.status ?? 'disconnected' };
-  },
-);
-router.register(
-  CHANNELS.CDP_DISCONNECT,
-  cdpDisconnectInputSchema,
-  async (): Promise<CdpCommandOutput> => {
-    // Mark the user as "I clicked Disconnect" so the auto-attach policy
-    // (TD-16) doesn't fire on the next Metro-ready event. The user can
-    // re-enable it from the renderer's auto-attach toggle.
-    autoAttach.markUserDisconnected();
-    await cdpSession?.disconnect();
-    return { status: 'disconnected' };
-  },
-);
+const cdp = createCdpController({ unified, captureNetworkEvent });
+registerCdpChannels(router, cdp, () => autoAttach.markUserDisconnected());
 
 router.register(
   CHANNELS.METRO_START,
@@ -258,9 +223,9 @@ const autoAttach = new AutoAttach({
   isMetroReady: () => metro.status === 'ready',
   firstBootedSimUdid: () => devices.devices.find((d) => d.state === 'Booted')?.udid ?? null,
   cdpConnect: async () => {
-    if (cdpSession) await cdpSession.connect();
+    await cdp.connect();
   },
-  isCdpBusy: () => cdpSession?.status === 'connecting' || cdpSession?.status === 'connected',
+  isCdpBusy: () => cdp.isBusy(),
   isEnabled: () => autoAttachEnabled,
   setEnabled: (enabled) => {
     autoAttachEnabled = enabled;
@@ -288,6 +253,9 @@ autoAttach.start({
   onMetroStatusChange: (handler) => metro.onStatus(handler),
   onDevicesListChange: (handler) => devices.onList((list) => handler(list.map((d) => d.udid))),
 });
+
+// --- AI assistant (E-13) --- query/command channels; the `ai.ask` stream is bound in `bindSubscriptions`.
+registerAssistantChannels(router, assistant);
 
 /** Bind every registered channel to ipcMain.handle, routing through the validated router. */
 function bindIpc(): void {
@@ -323,6 +291,9 @@ function bindSubscriptions(): void {
     return logStream.snapshot();
   });
   ipcMain.handle(SUBSCRIPTIONS.UNIFIED_LOG_STOP, (event) => stop(event.sender.id));
+
+  // The assistant ask stream (E-13) — per-window, so bound here alongside the log subscription.
+  bindAssistantAsk(assistant);
 }
 
 function applyContentSecurityPolicy(): void {
@@ -358,15 +329,14 @@ function createWindow(): void {
   });
 
   window.once('ready-to-show', () => window.show());
-  cdpSession = createCdpSession(window);
+  cdp.attachToWindow(window);
   // Auto-wire every registered module's events to this window (TD-15). The
   // metro (log/status) and unified-log streams reach the renderer through the
   // generic `module.{id}.event.{name}` channels — no per-module wiring here.
   const unbindModules = bindRegistryToWindow(registry, window);
   window.on('closed', () => {
     unbindModules();
-    void cdpSession?.disconnect();
-    cdpSession = undefined;
+    void cdp.detach();
   });
 
   // Refuse navigation to any external origin and block new windows (ADR-0004).
