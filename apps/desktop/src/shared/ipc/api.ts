@@ -21,8 +21,7 @@ import type {
   UnifiedLogDeltaOut,
   AiKeyStatus,
   AiKeySetInput,
-  AiAskInput,
-  AiPreviewInput,
+  AiReviewInput,
   AiChunkEvent,
   AiErrorEvent,
   SendPayload,
@@ -105,13 +104,17 @@ export interface IcarusApi {
   aiKeySet(input: AiKeySetInput): Promise<void>;
   /** Clear the stored BYOK key. */
   aiKeyClear(): Promise<void>;
-  /** The exact redacted payload that would be sent for a question — the "what gets sent" preview. */
-  aiPreview(input: AiPreviewInput): Promise<SendPayload>;
   /**
-   * Ask the assistant. Resolves with the redacted `SendPayload` that was sent, then streams
-   * the answer via `onAiChunk` (+ `onAiDone` / `onAiError`). A new ask cancels any in-flight one.
+   * Step 1 of the consent-gated ask: build the exact redacted `SendPayload` for a question and
+   * hold it as this window's pending payload. Returns it for the user to review before any send.
    */
-  aiAsk(input: AiAskInput): Promise<SendPayload>;
+  aiReview(input: AiReviewInput): Promise<SendPayload>;
+  /**
+   * Step 2: send the reviewed payload — exactly what `aiReview` returned, nothing re-derived.
+   * Resolves with that `SendPayload`, then streams the answer via `onAiChunk` (+ `onAiDone` /
+   * `onAiError`). Rejects if there's no pending review. A new send cancels any in-flight one.
+   */
+  aiSend(): Promise<SendPayload>;
   /** Receive streamed answer fragments. Returns an unsubscribe. */
   onAiChunk(handler: (chunk: AiChunkEvent) => void): Unsubscribe;
   /** Notified when the answer stream completes. */

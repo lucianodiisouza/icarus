@@ -2,11 +2,11 @@ import { useCallback, useEffect, useRef, useState, type ReactElement } from 'rea
 import type { AiKeyStatus, RedactionReport, SendPayload } from '../shared/ipc/contracts.js';
 
 /**
- * The AI assistant Q&A panel (E-13, T-13.6): the user-facing thin slice. Ask a question about the
- * live debug context; the answer streams in. Every ask goes through the E-12 boundary, so the
- * panel always shows "what was sent" (the redacted payload) inline — the grounding + privacy
- * surface. AI is optional: without a stored BYOK key the panel degrades to an "add a key" state,
- * and if the OS keychain is unavailable it says so instead of pretending AI can be enabled.
+ * The AI assistant Q&A panel (E-12 T-12.5 / E-13 T-13.6): the user-facing thin slice. Ask about
+ * the live debug context, review the exact redacted bytes at the E-12 consent gate, then send;
+ * the grounded answer streams in. AI is optional: without a stored BYOK key the panel degrades to
+ * an "add a key" state, and if the OS keychain is unavailable it says so instead of pretending AI
+ * can be enabled.
  */
 export function AssistantSection(): ReactElement {
   const [keyStatus, setKeyStatus] = useState<AiKeyStatus | null>(null);
@@ -17,9 +17,9 @@ export function AssistantSection(): ReactElement {
     <section>
       <h2 style={{ fontSize: 16 }}>Ask the assistant (E-13 · grounded, BYOK Claude)</h2>
       <p style={{ color: '#57606a', marginTop: 0, fontSize: 13 }}>
-        Ask about the captured logs and network. The question and a redacted slice of that context
-        are sent to Claude with your own API key — nothing leaves your machine without the key, and
-        secrets are stripped at the boundary. You can see exactly what was sent below each answer.
+        Ask about the captured logs and network. You review the exact redacted text before it's sent
+        to Claude with your own API key — nothing leaves your machine until you approve it, and
+        secrets are always stripped at the boundary.
       </p>
       {keyStatus === null ? (
         <p style={{ color: '#8c959f', fontSize: 13 }}>Checking key…</p>
@@ -91,14 +91,21 @@ interface AskError {
   readonly noKey: boolean;
 }
 
-/** The key-present state: ask a question, stream the answer, and show what was sent. */
+/**
+ * The key-present state: type a question, **review** the exact redacted bytes, then explicitly
+ * send them. The review → send gate is the E-12 consent surface (T-12.5) — nothing is sent until
+ * the user sees what would be sent and approves it. Editing the question or toggles invalidates a
+ * standing review, so the user can never send bytes they didn't just look at.
+ */
 function AskPanel({ onKeyCleared }: { onKeyCleared: () => void }): ReactElement {
   const [question, setQuestion] = useState('');
   const [includeLogs, setIncludeLogs] = useState(true);
   const [includeNetwork, setIncludeNetwork] = useState(true);
+  const [review, setReview] = useState<SendPayload | null>(null); // reviewed, awaiting Send/Cancel
+  const [reviewing, setReviewing] = useState(false);
   const [asking, setAsking] = useState(false);
   const [answer, setAnswer] = useState('');
-  const [sent, setSent] = useState<SendPayload | null>(null);
+  const [sent, setSent] = useState<SendPayload | null>(null); // what was actually sent, post-send
   const [error, setError] = useState<AskError | null>(null);
   const answerRef = useRef<HTMLDivElement>(null);
 
@@ -121,23 +128,46 @@ function AskPanel({ onKeyCleared }: { onKeyCleared: () => void }): ReactElement 
     answerRef.current?.scrollTo({ top: answerRef.current.scrollHeight });
   }, [answer]);
 
-  const ask = useCallback(async () => {
+  // Any edit to the inputs invalidates a standing review — you can only send what you just saw.
+  const invalidateReview = useCallback(() => setReview(null), []);
+  const editQuestion = useCallback((v: string) => {
+    setQuestion(v);
+    setReview(null);
+  }, []);
+  const toggle = useCallback((set: (fn: (v: boolean) => boolean) => void) => {
+    set((v) => !v);
+    setReview(null);
+  }, []);
+
+  const doReview = useCallback(async () => {
     if (!question.trim()) return;
+    setReviewing(true);
+    setError(null);
+    setAnswer('');
+    setSent(null);
+    try {
+      setReview(
+        await window.icarus.aiReview({ question: question.trim(), includeLogs, includeNetwork }),
+      );
+    } catch (e) {
+      setError({ message: e instanceof Error ? e.message : String(e), noKey: false });
+    } finally {
+      setReviewing(false);
+    }
+  }, [question, includeLogs, includeNetwork]);
+
+  const doSend = useCallback(async () => {
     setAsking(true);
     setAnswer('');
     setError(null);
-    setSent(null);
     try {
-      const payload = await window.icarus.aiAsk({
-        question: question.trim(),
-        includeLogs,
-        includeNetwork,
-      });
-      setSent(payload); // the exact redacted bytes that were sent — the grounding surface
+      const payload = await window.icarus.aiSend();
+      setSent(payload); // exactly what was reviewed and sent — the grounding surface
+      setReview(null); // consumed; close the gate and show the streaming answer
     } catch {
-      // The failure is surfaced via the onAiError event (with the noKey flag); nothing to do here.
+      // Surfaced via the onAiError event (with the noKey flag); nothing to do here.
     }
-  }, [question, includeLogs, includeNetwork]);
+  }, []);
 
   const clearKey = useCallback(async () => {
     await window.icarus.aiKeyClear();
@@ -150,25 +180,25 @@ function AskPanel({ onKeyCleared }: { onKeyCleared: () => void }): ReactElement 
         <input
           type="text"
           value={question}
-          onChange={(e) => setQuestion(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && !asking && void ask()}
+          onChange={(e) => editQuestion(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && !reviewing && !asking && void doReview()}
           placeholder="e.g. why did the login request fail?"
           disabled={asking}
           style={{ ...inputStyle, minWidth: 320 }}
         />
         <button
           type="button"
-          onClick={() => void ask()}
-          disabled={asking || !question.trim()}
+          onClick={() => void doReview()}
+          disabled={reviewing || asking || !question.trim()}
           style={btn}
         >
-          {asking ? 'Asking…' : 'Ask'}
+          {reviewing ? 'Reviewing…' : 'Review what gets sent'}
         </button>
-        <ToggleChip label="logs" active={includeLogs} onToggle={() => setIncludeLogs((v) => !v)} />
+        <ToggleChip label="logs" active={includeLogs} onToggle={() => toggle(setIncludeLogs)} />
         <ToggleChip
           label="network"
           active={includeNetwork}
-          onToggle={() => setIncludeNetwork((v) => !v)}
+          onToggle={() => toggle(setIncludeNetwork)}
         />
         <button
           type="button"
@@ -186,18 +216,60 @@ function AskPanel({ onKeyCleared }: { onKeyCleared: () => void }): ReactElement 
         </p>
       )}
 
+      {review && !asking && (
+        <ReviewGate payload={review} onSend={() => void doSend()} onCancel={invalidateReview} />
+      )}
+
       {(asking || answer) && (
         <div ref={answerRef} style={answerBox}>
           {answer || <span style={{ color: '#8c959f' }}>…</span>}
         </div>
       )}
 
-      {sent && <SentSummary payload={sent} />}
+      {sent && !review && <SentSummary payload={sent} />}
     </div>
   );
 }
 
-/** The "what was sent" surface (T-12.5 / T-13.6): redaction summary + the exact bytes, collapsed. */
+/**
+ * The consent gate (E-12 T-12.5): shows the exact redacted bytes that would be sent, always-on
+ * redaction clearly indicated, and a mandatory Send / Cancel. Redaction is not disableable — the
+ * user narrows scope with the category toggles, never by turning scrubbing off.
+ */
+function ReviewGate({
+  payload,
+  onSend,
+  onCancel,
+}: {
+  payload: SendPayload;
+  onSend: () => void;
+  onCancel: () => void;
+}): ReactElement {
+  return (
+    <div style={gateBox}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+        <strong style={{ fontSize: 13 }}>Review before sending to Claude</strong>
+        <span style={{ fontSize: 12, color: '#57606a' }}>
+          ~{payload.approxTokens} tokens · {redactionLabel(payload.report)}
+        </span>
+        <span style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
+          <button type="button" onClick={onSend} style={sendBtn}>
+            Send to Claude
+          </button>
+          <button type="button" onClick={onCancel} style={btn}>
+            Cancel
+          </button>
+        </span>
+      </div>
+      <p style={{ margin: '0 0 6px', fontSize: 11.5, color: '#9a6700' }}>
+        Secrets are always stripped at the boundary — this is the exact text that will be sent:
+      </p>
+      <pre style={gatePre}>{payload.text}</pre>
+    </div>
+  );
+}
+
+/** The "what was sent" surface after an answer (T-12.5 / T-13.6): summary + exact bytes, collapsed. */
 function SentSummary({ payload }: { payload: SendPayload }): ReactElement {
   return (
     <details style={{ marginTop: 10 }}>
@@ -292,4 +364,35 @@ const answerBox = {
   lineHeight: 1.5,
   whiteSpace: 'pre-wrap',
   background: '#fff',
+} as const;
+
+const gateBox = {
+  marginTop: 12,
+  border: '1px solid #d0a215',
+  borderRadius: 6,
+  padding: 12,
+  background: '#fffbe6',
+} as const;
+
+const gatePre = {
+  margin: 0,
+  maxHeight: 220,
+  overflow: 'auto',
+  background: '#fff',
+  border: '1px solid #eaeef2',
+  borderRadius: 6,
+  padding: 8,
+  fontSize: 11.5,
+  whiteSpace: 'pre-wrap',
+} as const;
+
+const sendBtn = {
+  padding: '8px 16px',
+  fontSize: 14,
+  cursor: 'pointer',
+  fontWeight: 600,
+  background: '#1a7f37',
+  color: '#fff',
+  border: '1px solid #1a7f37',
+  borderRadius: 6,
 } as const;

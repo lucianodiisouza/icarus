@@ -36,7 +36,11 @@ import { wireMetroIntoUnified } from './unified-fan-in.js';
 import { SyslogFanIn } from './syslog-fan-in.js';
 import { createOrphanRegistry, reapOrphansFromPreviousRun } from './orphan-reaper.js';
 import { createUnifiedLogPersistence, restoreUnifiedLog } from './log-persistence.js';
-import { bindAssistantAsk, createAssistant, registerAssistantChannels } from './assistant-ipc.js';
+import {
+  bindAssistantReviewAndSend,
+  createAssistant,
+  registerAssistantChannels,
+} from './assistant-ipc.js';
 import { createCdpController, registerCdpChannels } from './cdp-ipc.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -292,8 +296,8 @@ function bindSubscriptions(): void {
   });
   ipcMain.handle(SUBSCRIPTIONS.UNIFIED_LOG_STOP, (event) => stop(event.sender.id));
 
-  // The assistant ask stream (E-13) — per-window, so bound here alongside the log subscription.
-  bindAssistantAsk(assistant);
+  // The assistant review/send stream (E-12/E-13) — per-window, bound alongside the log subscription.
+  bindAssistantReviewAndSend(assistant);
 }
 
 function applyContentSecurityPolicy(): void {

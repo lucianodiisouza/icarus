@@ -2,7 +2,8 @@ import { describe, expect, it, vi } from 'vitest';
 import { buildContextBundle } from './boundary/context-bundle.js';
 import type { UnifiedLogEntry } from '../unified-log/unified-log.js';
 import type { AiRequest, AIProvider } from './provider.js';
-import { askAssistant, collectAnswer, DEFAULT_SYSTEM_PROMPT } from './assistant.js';
+import { buildAiSendPayload } from './boundary/send-payload.js';
+import { askAssistant, askWithPayload, collectAnswer, DEFAULT_SYSTEM_PROMPT } from './assistant.js';
 
 const log = (text: string): UnifiedLogEntry => ({
   source: 'cdp',
@@ -84,5 +85,34 @@ describe('askAssistant', () => {
     // The payload is built eagerly (so the UI can preview it), but the provider is lazy.
     expect(payload.text).toContain('## Question');
     expect(ask).toHaveBeenCalledTimes(1); // ask() called, but the generator body hasn't run yet
+  });
+});
+
+describe('askWithPayload (the consent-gated send path)', () => {
+  it('sends exactly the given payload, re-deriving nothing from context', async () => {
+    const { provider, lastRequest } = fakeProvider('ok');
+    // A payload reviewed at time T; the "later" context is irrelevant — only these bytes are sent.
+    const reviewed = buildAiSendPayload(
+      buildContextBundle({ question: 'why did login fail?', logs: [log('POST /login 401')] }),
+    );
+
+    const text = await collectAnswer(askWithPayload(reviewed, { provider }));
+
+    expect(lastRequest()?.content).toBe(reviewed.text); // byte-for-byte what was reviewed
+    expect(lastRequest()?.system).toBe(DEFAULT_SYSTEM_PROMPT);
+    expect(text.trim()).toBe('ok');
+  });
+
+  it('is what askAssistant sends — same content for the same bundle', async () => {
+    const bundle = buildContextBundle({ question: 'q', logs: [log('boom')] });
+    const viaAssistant = fakeProvider();
+    const viaPayload = fakeProvider();
+
+    await collectAnswer(askAssistant(bundle, { provider: viaAssistant.provider }).answer);
+    await collectAnswer(
+      askWithPayload(buildAiSendPayload(bundle), { provider: viaPayload.provider }),
+    );
+
+    expect(viaPayload.lastRequest()?.content).toBe(viaAssistant.lastRequest()?.content);
   });
 });

@@ -51,8 +51,6 @@ export const CHANNELS = {
   AI_KEY_SET: 'command:ai.keySet',
   /** Command: clear the stored BYOK key. */
   AI_KEY_CLEAR: 'command:ai.keyClear',
-  /** Query: the exact redacted payload that would be sent for a question (E-12 "what gets sent"). */
-  AI_PREVIEW: 'query:ai.preview',
 } as const;
 
 export type ChannelName = (typeof CHANNELS)[keyof typeof CHANNELS];
@@ -71,11 +69,17 @@ export const SUBSCRIPTIONS = {
   UNIFIED_LOG: 'subscribe:unifiedLog',
   UNIFIED_LOG_STOP: 'unsubscribe:unifiedLog',
   /**
-   * Ask the assistant (E-13). Per-window like the log subscription: invoke returns the exact
-   * redacted `SendPayload` that was sent, then the streamed answer arrives on `EVENTS.AI_CHUNK`
-   * / `AI_DONE` / `AI_ERROR`. A new ask cancels any in-flight one for the window.
+   * The two-step consent-gated ask (E-12 T-12.5 / E-13). Per-window like the log subscription
+   * (each holds a pending reviewed payload keyed by `webContents`), so bound directly, not routed.
+   *
+   * `AI_REVIEW` (invoke): builds the exact redacted `SendPayload` for a question + category
+   * toggles and holds it as this window's pending payload, returning it for the user to review.
+   * `AI_SEND` (invoke): sends that held payload — exactly what was reviewed, no re-derivation —
+   * returning it, then streaming the answer on `EVENTS.AI_CHUNK` / `AI_DONE` / `AI_ERROR`. A new
+   * review replaces the pending payload; a new send cancels any in-flight one for the window.
    */
-  AI_ASK: 'subscribe:ai.ask',
+  AI_REVIEW: 'subscribe:ai.review',
+  AI_SEND: 'subscribe:ai.send',
 } as const;
 
 /**
@@ -220,15 +224,13 @@ export const aiKeySetInputSchema = z.object({ key: z.string().min(1).max(500) })
 export type AiKeySetInput = z.infer<typeof aiKeySetInputSchema>;
 export const aiKeyClearInputSchema = z.void();
 
-/** The question + category toggles (T-12.6), shared by `ai.preview` and `ai.ask`. */
-export const aiAskInputSchema = z.object({
+/** The question + category toggles (T-12.6) that `ai.review` turns into a reviewable payload. */
+export const aiReviewInputSchema = z.object({
   question: z.string().min(1).max(2000),
   includeLogs: z.boolean().optional(),
   includeNetwork: z.boolean().optional(),
 });
-export type AiAskInput = z.infer<typeof aiAskInputSchema>;
-export const aiPreviewInputSchema = aiAskInputSchema;
-export type AiPreviewInput = AiAskInput;
+export type AiReviewInput = z.infer<typeof aiReviewInputSchema>;
 
 /** A streamed fragment of the answer (EVENTS.AI_CHUNK). */
 export interface AiChunkEvent {

@@ -13,9 +13,8 @@ import {
   CHANNELS,
   EVENTS,
   SUBSCRIPTIONS,
-  aiAskInputSchema,
   aiKeySetInputSchema,
-  aiPreviewInputSchema,
+  aiReviewInputSchema,
   type AiKeyStatus,
   type SendPayload,
 } from '../shared/ipc/contracts.js';
@@ -62,9 +61,9 @@ export function createAssistant(deps: {
 }
 
 /**
- * Register the assistant's query/command channels on the router (validated at the boundary):
- * the BYOK key lifecycle and the "what gets sent" preview. The streaming `ai.ask` is per-window,
- * so it's bound separately via `bindAssistantAsk` (it needs the calling `webContents`).
+ * Register the assistant's key-lifecycle channels on the router (validated at the boundary). The
+ * review/send pair is per-window (each holds a pending reviewed payload), so it's bound separately
+ * via `bindAssistantReviewAndSend` — it needs the calling `webContents`.
  */
 export function registerAssistantChannels(router: IpcRouter, assistant: AssistantBridge): void {
   router.register(CHANNELS.AI_KEY_STATUS, z.void(), (): Promise<AiKeyStatus> =>
@@ -72,20 +71,24 @@ export function registerAssistantChannels(router: IpcRouter, assistant: Assistan
   );
   router.register(CHANNELS.AI_KEY_SET, aiKeySetInputSchema, ({ key }) => assistant.setKey(key));
   router.register(CHANNELS.AI_KEY_CLEAR, z.void(), () => assistant.clearKey());
-  router.register(CHANNELS.AI_PREVIEW, aiPreviewInputSchema, (input): Promise<SendPayload> =>
-    Promise.resolve(assistant.preview(input)),
-  );
 }
 
 /**
- * Bind the assistant ask stream (E-13). Like the unified-log subscription it's per-window:
- * `invoke` resolves with the exact redacted `SendPayload` that was sent (the "what was sent"
- * surface), then the answer streams as `AI_CHUNK` events, ending in `AI_DONE` or `AI_ERROR`.
- * A `NoApiKeyError` rejects the invoke and emits `AI_ERROR { noKey: true }` so a purely
- * event-driven UI still learns of it. A new ask from a window supersedes any in-flight one;
- * a destroyed window cancels its own. Nothing leaves the machine without a key.
+ * Bind the two-step consent-gated ask (E-12 T-12.5 / E-13). Both steps are per-window:
+ *
+ * - `AI_REVIEW` builds the exact redacted payload for a question and holds it as this window's
+ *   pending payload, returning it for the user to review. It sends nothing and needs no key.
+ * - `AI_SEND` sends that held payload — exactly what was reviewed, never re-derived from context
+ *   that may have grown since — then streams the answer (`AI_CHUNK` → `AI_DONE`/`AI_ERROR`). The
+ *   pending payload is consumed on send, so every send is backed by a fresh, explicit review.
+ *
+ * A `NoApiKeyError` on send rejects the invoke and emits `AI_ERROR { noKey: true }` so an
+ * event-driven UI still learns of it. A new send cancels any in-flight one; a destroyed window
+ * drops its pending payload and cancels its stream. Nothing leaves the machine without a key.
  */
-export function bindAssistantAsk(assistant: AssistantBridge): void {
+export function bindAssistantReviewAndSend(assistant: AssistantBridge): void {
+  /** This window's reviewed-but-not-yet-sent payload, keyed by `webContents.id`. */
+  const pending = new Map<number, SendPayload>();
   /** In-flight answer streams, keyed by `webContents.id`; the flag stops a cancelled stream. */
   const inFlight = new Map<number, { cancelled: boolean }>();
   const cancel = (id: number): void => {
@@ -94,30 +97,40 @@ export function bindAssistantAsk(assistant: AssistantBridge): void {
     inFlight.delete(id);
   };
 
-  ipcMain.handle(SUBSCRIPTIONS.AI_ASK, async (event, rawInput: unknown): Promise<SendPayload> => {
+  ipcMain.handle(SUBSCRIPTIONS.AI_REVIEW, (event, rawInput: unknown): SendPayload => {
     const wc = event.sender;
-    cancel(wc.id); // a new ask supersedes any in-flight one for this window
-    const input = aiAskInputSchema.parse(rawInput);
+    const payload = assistant.preview(aiReviewInputSchema.parse(rawInput));
+    pending.set(wc.id, payload); // hold exactly these bytes for the matching send
+    wc.once('destroyed', () => pending.delete(wc.id));
+    return payload;
+  });
 
-    let exchange;
+  ipcMain.handle(SUBSCRIPTIONS.AI_SEND, async (event): Promise<SendPayload> => {
+    const wc = event.sender;
+    cancel(wc.id); // a new send supersedes any in-flight one for this window
+    const payload = pending.get(wc.id);
+    if (payload === undefined) throw new Error('Nothing to send — review a question first.');
+    pending.delete(wc.id); // consume the consent: one review, one send
+
+    let answer: AsyncIterable<{ text: string }>;
     try {
-      exchange = await assistant.ask(input);
+      answer = await assistant.send(payload);
     } catch (err) {
       send(wc, EVENTS.AI_ERROR, {
         message: errorMessage(err),
         noKey: err instanceof NoApiKeyError,
       });
-      throw err; // reject the invoke too — the ask never started
+      throw err; // reject the invoke too — the send never started
     }
 
     const token = { cancelled: false };
     inFlight.set(wc.id, token);
     wc.once('destroyed', () => cancel(wc.id));
-    void streamAnswer(wc, exchange.answer, token, () => {
+    void streamAnswer(wc, answer, token, () => {
       if (inFlight.get(wc.id) === token) inFlight.delete(wc.id);
     });
 
-    return exchange.payload;
+    return payload;
   });
 }
 
