@@ -12,6 +12,11 @@ import type {
   CdpStatusEvent,
   MetroStartInput,
   UnifiedLogDeltaOut,
+  AiKeySetInput,
+  AiAskInput,
+  AiPreviewInput,
+  AiChunkEvent,
+  AiErrorEvent,
 } from '../shared/ipc/contracts.js';
 import type { IcarusApi, Unsubscribe } from '../shared/ipc/api.js';
 
@@ -52,6 +57,14 @@ const api: IcarusApi = {
     subscribe(EVENTS.UNIFIED_LOG_DELTA, handler),
   autoAttachGet: () => ipcRenderer.invoke(CHANNELS.AUTO_ATTACH_GET),
   autoAttachSet: (input: AutoAttachSetInput) => ipcRenderer.invoke(CHANNELS.AUTO_ATTACH_SET, input),
+  aiKeyStatus: () => ipcRenderer.invoke(CHANNELS.AI_KEY_STATUS),
+  aiKeySet: (input: AiKeySetInput) => ipcRenderer.invoke(CHANNELS.AI_KEY_SET, input),
+  aiKeyClear: () => ipcRenderer.invoke(CHANNELS.AI_KEY_CLEAR),
+  aiPreview: (input: AiPreviewInput) => ipcRenderer.invoke(CHANNELS.AI_PREVIEW, input),
+  aiAsk: (input: AiAskInput) => ipcRenderer.invoke(SUBSCRIPTIONS.AI_ASK, input),
+  onAiChunk: (handler: (chunk: AiChunkEvent) => void) => subscribe(EVENTS.AI_CHUNK, handler),
+  onAiDone: (handler: () => void) => subscribe(EVENTS.AI_DONE, () => handler()),
+  onAiError: (handler: (error: AiErrorEvent) => void) => subscribe(EVENTS.AI_ERROR, handler),
 };
 
 contextBridge.exposeInMainWorld('icarus', api);
