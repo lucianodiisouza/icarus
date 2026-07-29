@@ -16,6 +16,8 @@ import type {
   AiReviewInput,
   AiChunkEvent,
   AiErrorEvent,
+  LogExportInput,
+  LogExportOutput,
 } from '../shared/ipc/contracts.js';
 import type { IcarusApi, Unsubscribe } from '../shared/ipc/api.js';
 
@@ -64,6 +66,14 @@ const api: IcarusApi = {
   onAiChunk: (handler: (chunk: AiChunkEvent) => void) => subscribe(EVENTS.AI_CHUNK, handler),
   onAiDone: (handler: () => void) => subscribe(EVENTS.AI_DONE, () => handler()),
   onAiError: (handler: (error: AiErrorEvent) => void) => subscribe(EVENTS.AI_ERROR, handler),
+  /**
+   * Write the captured unified log to a user-chosen file (E-15, M3 first slice).
+   * Opt-in: the user clicks the Export button → Save dialog → file written. Resolves with the
+   * path + the redaction report. Rejects (with `ExportCancelledError`) if the user cancels
+   * the dialog — the renderer treats that as a silent no-op.
+   */
+  logExport: (input: LogExportInput) =>
+    ipcRenderer.invoke(CHANNELS.LOG_EXPORT, input) as Promise<LogExportOutput>,
 };
 
 contextBridge.exposeInMainWorld('icarus', api);

@@ -122,6 +122,10 @@ export type { UnifiedEntryHandler } from './unified-log/unified-log-controller.j
 // Unified-log disk persistence (TD-19, OQ-9): bounded, local-only, crash-recoverable.
 export { UnifiedLogPersistence } from './unified-log/log-persistence.js';
 export type { UnifiedLogPersistenceOptions } from './unified-log/log-persistence.js';
+// Unified-log export (E-15, M3 first slice): opt-in, user-initiated, redacted JSONL dump
+// of the captured log — the TD-19 follow-on explicitly deferred from M2.
+export { buildLogExport, defaultExportFilename, ICARUS_VERSION } from './unified-log/log-export.js';
+export type { LogExport, LogExportEntry, LogExportMeta } from './unified-log/log-export.js';
 export { fileStore } from './persistence/file-store.js';
 export type { FileStore } from './persistence/file-store.js';
 

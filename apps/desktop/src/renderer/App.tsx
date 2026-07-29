@@ -390,6 +390,12 @@ function UnifiedLogSection(): ReactElement {
   const [levelFilter, setLevelFilter] = useState<Set<UnifiedLogEntryOut['level']>>(
     new Set(['log', 'info', 'warn', 'error', 'debug']),
   );
+  const [exportState, setExportState] = useState<
+    | { kind: 'idle' }
+    | { kind: 'busy' }
+    | { kind: 'done'; path: string; count: number; redacted: number }
+    | { kind: 'error'; message: string }
+  >({ kind: 'idle' });
   const keyRef = useRef(0);
   const listRef = useRef<HTMLDivElement>(null);
   const [scrollTop, setScrollTop] = useState(0);
@@ -432,6 +438,32 @@ function UnifiedLogSection(): ReactElement {
   }, []);
 
   const visible = filterUnifiedLog(entries, textQuery, sourceFilter, levelFilter);
+
+  // E-15: opt-in export of the currently-visible log entries. The renderer is the source of
+  // truth for what to export (its filter chips + search query ARE the user's intent); the main
+  // process writes the file with the same redaction rules the E-12 AI boundary uses, so a
+  // planted secret in any entry is scrubbed before the file is written.
+  const onExport = useCallback(async () => {
+    setExportState({ kind: 'busy' });
+    try {
+      const out = await window.icarus.logExport({ entries: visible.map(stripKey) });
+      setExportState({
+        kind: 'done',
+        path: out.path,
+        count: out.count,
+        redacted: out.report.total,
+      });
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      // The main process signals a user-canceled dialog with `ExportCancelledError`; that's a
+      // clean no-op for the user, not an error — show nothing rather than a red toast.
+      if (message.includes('Export cancelled')) {
+        setExportState({ kind: 'idle' });
+      } else {
+        setExportState({ kind: 'error', message });
+      }
+    }
+  }, [visible]);
 
   // Auto-scroll to bottom when new entries arrive, unless the user has scrolled up.
   useEffect(() => {
@@ -502,6 +534,26 @@ function UnifiedLogSection(): ReactElement {
         <span style={{ color: '#8c959f', fontSize: 12, marginLeft: 'auto' }}>
           {visible.length} / {entries.length} (rendering {windowEntries.length})
         </span>
+        <button
+          type="button"
+          onClick={() => void onExport()}
+          disabled={exportState.kind === 'busy' || visible.length === 0}
+          title={
+            visible.length === 0
+              ? 'Nothing to export — adjust the filters or capture some logs first.'
+              : 'Write the visible entries to a file (always redacted, local-only).'
+          }
+          style={{
+            padding: '4px 10px',
+            fontSize: 12,
+            cursor: exportState.kind === 'busy' ? 'wait' : 'pointer',
+            border: '1px solid #d0d7de',
+            borderRadius: 4,
+            background: exportState.kind === 'busy' ? '#f6f8fa' : '#fff',
+          }}
+        >
+          {exportState.kind === 'busy' ? 'Exporting…' : `Export ${visible.length} entries`}
+        </button>
       </div>
       <div
         ref={listRef}
@@ -531,8 +583,42 @@ function UnifiedLogSection(): ReactElement {
           </>
         )}
       </div>
+      {exportState.kind === 'done' && (
+        <p
+          style={{
+            marginTop: 6,
+            fontSize: 12,
+            color: '#1a7f37',
+            display: 'flex',
+            gap: 8,
+            alignItems: 'center',
+          }}
+        >
+          <span>✓ Exported {exportState.count} entries to</span>
+          <code style={{ background: '#f6f8fa', padding: '1px 6px', borderRadius: 3 }}>
+            {exportState.path}
+          </code>
+          {exportState.redacted > 0 && (
+            <span style={{ color: '#9a6700' }}>
+              · {exportState.redacted} redaction{exportState.redacted === 1 ? '' : 's'} applied
+            </span>
+          )}
+        </p>
+      )}
+      {exportState.kind === 'error' && (
+        <p style={{ marginTop: 6, fontSize: 12, color: STATUS_COLOR.error }}>
+          Export failed: {exportState.message}
+        </p>
+      )}
     </section>
   );
+}
+
+/** Strip the renderer's `key` (a list-key field) before sending an entry over IPC. */
+function stripKey(entry: UnifiedLogEntryOut & { key: number }): UnifiedLogEntryOut {
+  const { key: _unused, ...rest } = entry;
+  void _unused;
+  return rest;
 }
 
 function FilterChip({

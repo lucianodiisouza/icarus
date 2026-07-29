@@ -51,6 +51,13 @@ export const CHANNELS = {
   AI_KEY_SET: 'command:ai.keySet',
   /** Command: clear the stored BYOK key. */
   AI_KEY_CLEAR: 'command:ai.keyClear',
+  /**
+   * Command: write the captured unified log to a user-chosen file (E-15, M3 first slice).
+   * Opt-in only — the renderer's "Export…" button is the only door. The export applies the
+   * same `redact()` rules the E-12 AI boundary uses, so a planted secret never reaches the
+   * file (M3 canary in `log-export.test.ts`).
+   */
+  LOG_EXPORT: 'command:log.export',
 } as const;
 
 export type ChannelName = (typeof CHANNELS)[keyof typeof CHANNELS];
@@ -241,3 +248,45 @@ export interface AiErrorEvent {
   readonly message: string;
   readonly noKey: boolean;
 }
+
+// --- command:log.export (E-15, M3 first slice) ---
+/**
+ * Input for `command:log.export`. v1 has no per-export toggles — the renderer hands main
+ * the entries it currently shows (so the filter chips + search query are the user's intent),
+ * and main writes them with redaction always-on (M3 canary in `log-export.test.ts`).
+ *
+ * Why the renderer is the source of truth: the filter chips live in the renderer, and a
+ * filter-by-source/level toggle that main can't see is a footgun. The renderer is the only
+ * place that knows "the user is looking at error-only metro output." Main is the trust
+ * boundary — it still runs `redact()` on every entry text, so a planted secret in any
+ * entry is scrubbed before the file is written. Adding per-export toggles (e.g. an opt-in
+ * "include network" switch) is a follow-on.
+ */
+export const logExportInputSchema = z.object({
+  /** The entries to write — exactly the ones the renderer is currently showing. */
+  entries: z
+    .array(
+      z.object({
+        source: z.enum(['cdp', 'native', 'metro']),
+        level: z.enum(['log', 'info', 'warn', 'error', 'debug']),
+        text: z.string(),
+        timestampMs: z.number().int().nonnegative(),
+        origin: z.string().optional(),
+      }),
+    )
+    .max(20_000), // hard cap; the live log is bounded to 2000 by `UnifiedLogStream`, this is just a belt.
+});
+export type LogExportInput = z.infer<typeof logExportInputSchema>;
+/** A successful export — the path the user picked and the redaction report. */
+export interface LogExportOutput {
+  /** Absolute path the file was written to. */
+  readonly path: string;
+  /** Number of entries written. */
+  readonly count: number;
+  /** What redaction scrubbed, by category — same shape as the AI send-payload report (TR-5). */
+  readonly report: import('@icarus/core').RedactionReport;
+  /** Approximate file size in bytes. */
+  readonly approxBytes: number;
+}
+/** The `ExportCancelledError` is surfaced to the renderer as a typed IPC rejection
+ *  (Electron rejects the `invoke`); the renderer shows no error UI for this case. */

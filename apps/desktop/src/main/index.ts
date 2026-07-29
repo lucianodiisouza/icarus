@@ -42,6 +42,8 @@ import {
   registerAssistantChannels,
 } from './assistant-ipc.js';
 import { createCdpController, registerCdpChannels } from './cdp-ipc.js';
+import { LogExporter, createDefaultLogExporterDeps } from './log-exporter.js';
+import { registerLogExportChannel } from './log-exporter-ipc.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -260,6 +262,16 @@ autoAttach.start({
 
 // --- AI assistant (E-13) --- query/command channels; the `ai.ask` stream is bound in `bindSubscriptions`.
 registerAssistantChannels(router, assistant);
+
+// --- Unified-log export (E-15, M3 first slice) — opt-in, user-initiated, redacted JSONL dump.
+// The pure formatter lives in `core`; this is the OS-dialog + file-write wiring.
+const logExporter = new LogExporter(
+  createDefaultLogExporterDeps({
+    parentWindow: () => BrowserWindow.getAllWindows()[0] ?? null,
+    projectLabel: () => metro.project?.name ?? 'unified log',
+  }),
+);
+registerLogExportChannel(router, logExporter);
 
 /** Bind every registered channel to ipcMain.handle, routing through the validated router. */
 function bindIpc(): void {

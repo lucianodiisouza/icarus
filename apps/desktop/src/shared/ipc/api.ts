@@ -9,6 +9,8 @@ import type {
   DevicesLaunchOutput,
   MetroStartInput,
   MetroStartOutput,
+  LogExportInput,
+  LogExportOutput,
 } from './contracts.js';
 import type {
   AutoAttachSetInput,
@@ -121,6 +123,16 @@ export interface IcarusApi {
   onAiDone(handler: () => void): Unsubscribe;
   /** Notified when the answer stream fails (includes the no-key case). */
   onAiError(handler: (error: AiErrorEvent) => void): Unsubscribe;
+
+  /**
+   * Write the captured unified log to a user-chosen file (E-15, M3 first slice). The
+   * user's click in the renderer is the only door — the IPC is never invoked any other
+   * way. `input.entries` is the currently-visible log (the renderer's filter chips +
+   * search are the user's intent). Resolves with the path + redaction report. Rejects
+   * with `ExportCancelledError` if the user cancels the save dialog (the renderer
+   * treats this as a clean no-op).
+   */
+  logExport(input: LogExportInput): Promise<LogExportOutput>;
 }
 
 declare global {
