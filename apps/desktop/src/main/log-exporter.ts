@@ -1,5 +1,3 @@
-import { writeFile } from 'node:fs/promises';
-import { dialog, type BrowserWindow } from 'electron';
 import {
   buildLogExport,
   defaultExportFilename,
@@ -13,8 +11,11 @@ import {
  * The desktop side of the M3 first slice (E-15, TD-19 follow-on). The pure formatter lives in
  * `core/unified-log/log-export.ts` and runs the same `redact()` rules as the E-12 AI boundary —
  * see that module for the design contract and the M3 canary rationale. This file is the
- * Electron-bound wiring: take the renderer's currently-visible entries, show a Save dialog,
- * write the file, return exactly what was written and what was redacted.
+ * Electron-free part of the wiring: the `LogExporter` orchestrator. The Electron-bound bits
+ * (the `showSaveDialog` factory + `writeFile`) live in `log-exporter-ipc.ts` so this file can
+ * be unit-tested without loading `electron` at all (which would crash the unit-test runner
+ * on cold CI runners that haven't installed the Electron binary — see the same shape used by
+ * `assistant-bridge.ts` / `assistant-ipc.ts`).
  *
  * Everything injectable is injected:
  *   - `pickPath` is the file-picker seam (real: `showSaveDialog`, test: a stub)
@@ -89,44 +90,4 @@ export class LogExporter {
 
     return { path, count: entries.length, report: out.report, approxBytes: out.approxBytes };
   }
-}
-
-/**
- * The production wiring: a real OS save dialog scoped to a window, and a real `writeFile` write.
- * Kept as a small factory so the rest of the wiring (the IPC channel handler) can stay
- * type-agnostic and a test can drop in fakes without dragging Electron in.
- */
-export function createDefaultLogExporterDeps(deps: {
-  readonly parentWindow: () => BrowserWindow | null;
-  readonly projectLabel: () => string;
-}): LogExporterDeps {
-  return {
-    projectLabel: deps.projectLabel,
-    pickPath: async (suggestedName) => {
-      const parent = deps.parentWindow();
-      const result = parent
-        ? await dialog.showSaveDialog(parent, {
-            title: 'Export unified log',
-            defaultPath: suggestedName,
-            filters: [
-              { name: 'JSON Lines', extensions: ['jsonl'] },
-              { name: 'All files', extensions: ['*'] },
-            ],
-          })
-        : await dialog.showSaveDialog({
-            title: 'Export unified log',
-            defaultPath: suggestedName,
-            filters: [
-              { name: 'JSON Lines', extensions: ['jsonl'] },
-              { name: 'All files', extensions: ['*'] },
-            ],
-          });
-      // The Electron dialog returns `{ canceled, filePath }`; map the cancel case to `null`
-      // (the rest of the exporter only cares "did the user pick a path or not").
-      return result.canceled ? null : result.filePath;
-    },
-    write: async (path, data) => {
-      await writeFile(path, data, 'utf8');
-    },
-  };
 }

@@ -42,8 +42,8 @@ import {
   registerAssistantChannels,
 } from './assistant-ipc.js';
 import { createCdpController, registerCdpChannels } from './cdp-ipc.js';
-import { LogExporter, createDefaultLogExporterDeps } from './log-exporter.js';
-import { registerLogExportChannel } from './log-exporter-ipc.js';
+import { LogExporter } from './log-exporter.js';
+import { createDefaultLogExporterDeps, registerLogExportChannel } from './log-exporter-ipc.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 

@@ -1,3 +1,5 @@
+import { writeFile } from 'node:fs/promises';
+import { dialog, type BrowserWindow } from 'electron';
 import { z } from 'zod';
 import {
   CHANNELS,
@@ -7,16 +9,19 @@ import {
 } from '../shared/ipc/contracts.js';
 import type { UnifiedLogEntry } from '@icarus/core';
 import type { IpcRouter } from './ipc/router.js';
-import { LogExporter } from './log-exporter.js';
+import { LogExporter, type LogExporterDeps } from './log-exporter.js';
 
 /**
  * The desktop wiring of the M3 first slice (E-15, TD-19 follow-on). The pure formatter lives in
- * `core/unified-log/log-export.ts`; this file is the IPC plumbing: a single command channel
- * (`command:log.export`) registered on the typed router, with a `LogExporter` that owns the
- * dialog + file write. Cancelling the dialog is a clean no-op (typed rejection the renderer
- * silently ignores).
+ * `core/unified-log/log-export.ts`; the Electron-free `LogExporter` lives in `log-exporter.ts`;
+ * this file is the Electron-bound half — the IPC plumbing and the production factory for the
+ * `LogExporter`'s injected deps.
  *
- * Kept in its own file (mirrors `assistant-ipc.ts`) so the main entry stays a thin orchestrator.
+ * Why the split: the unit-test runner does not have the Electron binary installed (only the
+ * e2e job does), and `import { dialog } from 'electron'` at module-load time crashes a cold
+ * runner with "Electron failed to install correctly" — even for test files that never use
+ * Electron. Keeping `electron` imports out of `log-exporter.ts` (which has a sibling test
+ * file) matches the `assistant-bridge.ts` / `assistant-ipc.ts` split.
  */
 export function registerLogExportChannel(router: IpcRouter, exporter: LogExporter): void {
   router.register(
@@ -41,6 +46,46 @@ function toCoreEntries(entries: LogExportInput['entries']): readonly UnifiedLogE
     }
     return e as UnifiedLogEntry;
   });
+}
+
+/**
+ * The production wiring: a real OS save dialog scoped to a window, and a real `writeFile` write.
+ * Kept as a small factory so the rest of the wiring (the IPC channel handler) can stay
+ * type-agnostic and a test can drop in fakes without dragging Electron in.
+ */
+export function createDefaultLogExporterDeps(deps: {
+  readonly parentWindow: () => BrowserWindow | null;
+  readonly projectLabel: () => string;
+}): LogExporterDeps {
+  return {
+    projectLabel: deps.projectLabel,
+    pickPath: async (suggestedName) => {
+      const parent = deps.parentWindow();
+      const result = parent
+        ? await dialog.showSaveDialog(parent, {
+            title: 'Export unified log',
+            defaultPath: suggestedName,
+            filters: [
+              { name: 'JSON Lines', extensions: ['jsonl'] },
+              { name: 'All files', extensions: ['*'] },
+            ],
+          })
+        : await dialog.showSaveDialog({
+            title: 'Export unified log',
+            defaultPath: suggestedName,
+            filters: [
+              { name: 'JSON Lines', extensions: ['jsonl'] },
+              { name: 'All files', extensions: ['*'] },
+            ],
+          });
+      // The Electron dialog returns `{ canceled, filePath }`; map the cancel case to `null`
+      // (the rest of the exporter only cares "did the user pick a path or not").
+      return result.canceled ? null : result.filePath;
+    },
+    write: async (path, data) => {
+      await writeFile(path, data, 'utf8');
+    },
+  };
 }
 
 // Re-export the zod schema for convenience in tests that import from this module.
