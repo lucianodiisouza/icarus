@@ -101,6 +101,13 @@ export const CHANNELS = {
    * recent-error count).
    */
   PERF_SNAPSHOT: 'command:perf.snapshot',
+  /**
+   * Command: take a snapshot of the running app's navigation state (E-20,
+   * M3 navigation inspector). Reads from the user-installed bridge
+   * `globalThis.__ICARUS_NAV_STATE__`. If the bridge is missing, returns
+   * `kind: 'no_bridge'` so the UI can show the copy-paste snippet.
+   */
+  NAV_SNAPSHOT: 'command:nav.snapshot',
 } as const;
 
 export type ChannelName = (typeof CHANNELS)[keyof typeof CHANNELS];
@@ -398,3 +405,7 @@ export const storageDeleteInputSchema = z.object({
 // --- command:perf.snapshot (E-19, M3 performance inspector — minimal viable) ---
 export type { PerfSnapshot } from '@icarus/core';
 export const perfSnapshotInputSchema = z.void();
+
+// --- command:nav.snapshot (E-20, M3 navigation inspector) ---
+export type { NavSnapshot, NavStateSnapshot, NavRoute } from '@icarus/core';
+export const navSnapshotInputSchema = z.void();

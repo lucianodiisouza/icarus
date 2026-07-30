@@ -84,6 +84,8 @@ export function App(): ReactElement {
       <StorageSection />
       <hr style={{ margin: '28px 0', border: 0, borderTop: '1px solid #eaeef2' }} />
       <PerfSection />
+      <hr style={{ margin: '28px 0', border: 0, borderTop: '1px solid #eaeef2' }} />
+      <NavSection />
     </main>
   );
 }
@@ -2317,5 +2319,241 @@ const hotTdStyle: React.CSSProperties = {
   padding: '4px 6px',
   fontSize: 12,
 };
+
+/**
+ * E-20 navigation inspector. Reads from the user-installed in-app bridge
+ * (`globalThis.__ICARUS_NAV_STATE__`). If the bridge is missing, the panel
+ * shows a copy-paste snippet the user can drop into their app.
+ */
+function NavSection(): ReactElement {
+  const [snapshot, setSnapshot] = useState<
+    | { kind: 'idle' }
+    | { kind: 'loading' }
+    | { kind: 'ready'; snap: import('../shared/ipc/contracts.js').NavSnapshot }
+    | { kind: 'error'; message: string }
+  >({ kind: 'idle' });
+
+  const refresh = useCallback(async () => {
+    setSnapshot({ kind: 'loading' });
+    try {
+      const snap = await window.icarus.navSnapshot();
+      setSnapshot({ kind: 'ready', snap });
+    } catch (e) {
+      setSnapshot({ kind: 'error', message: e instanceof Error ? e.message : String(e) });
+    }
+  }, []);
+
+  return (
+    <section>
+      <h2 style={{ fontSize: 16 }}>Navigation (E-20 · React Navigation)</h2>
+      <p style={{ color: '#57606a', marginTop: 0, fontSize: 13 }}>
+        Reads from <code>globalThis.__ICARUS_NAV_STATE__</code>. Add the one-line bridge to your app
+        to expose the state (snippet below).
+      </p>
+      <button
+        type="button"
+        onClick={() => void refresh()}
+        disabled={snapshot.kind === 'loading'}
+        style={btnStyle}
+      >
+        {snapshot.kind === 'loading' ? 'Refreshing…' : 'Refresh nav'}
+      </button>
+      <div style={{ marginTop: 12 }}>
+        {snapshot.kind === 'idle' && <p style={{ color: '#8c959f' }}>No snapshot yet.</p>}
+        {snapshot.kind === 'error' && (
+          <p style={{ color: STATUS_COLOR.error }}>{snapshot.message}</p>
+        )}
+        {snapshot.kind === 'ready' && snapshot.snap.ok && (
+          <NavReadyView state={snapshot.snap.state} />
+        )}
+        {snapshot.kind === 'ready' && !snapshot.snap.ok && (
+          <NavFailureView failure={snapshot.snap} />
+        )}
+      </div>
+      <BridgeSnippet />
+    </section>
+  );
+}
+
+function NavReadyView({
+  state,
+}: {
+  state: import('../shared/ipc/contracts.js').NavStateSnapshot;
+}): ReactElement {
+  return (
+    <div>
+      <p style={{ fontSize: 13, color: '#24292f' }}>
+        Active route: <strong>{state.activeRouteName}</strong>{' '}
+        <span style={{ color: '#8c959f', fontSize: 11 }}>
+          (index {state.index} of {state.routes.length})
+        </span>
+      </p>
+      <table style={{ borderCollapse: 'collapse', fontSize: 12, width: '100%' }}>
+        <thead>
+          <tr style={{ borderBottom: '1px solid #eaeef2', textAlign: 'left' }}>
+            <th style={navThStyle}>Index</th>
+            <th style={navThStyle}>Route</th>
+            <th style={navThStyle}>Key</th>
+            <th style={navThStyle}>Params</th>
+          </tr>
+        </thead>
+        <tbody>
+          {state.routes.map((r, i) => {
+            const isActive = i === state.index;
+            const params = (r as { params?: Record<string, unknown> }).params;
+            const preview = previewNavParams(params);
+            return (
+              <tr
+                key={r.key}
+                style={{
+                  borderBottom: '1px solid #f0f3f6',
+                  background: isActive ? '#fff8c5' : 'transparent',
+                }}
+              >
+                <td style={navTdStyle}>{i}</td>
+                <td style={{ ...navTdStyle, fontWeight: isActive ? 600 : 400 }}>{r.name}</td>
+                <td style={{ ...navTdStyle, color: '#8c959f', fontFamily: 'ui-monospace' }}>
+                  {r.key}
+                </td>
+                <td style={navTdStyle}>
+                  {Object.keys(preview).length === 0 ? (
+                    <span style={{ color: '#8c959f' }}>—</span>
+                  ) : (
+                    <code style={{ fontSize: 11 }}>
+                      {Object.entries(preview)
+                        .map(([k, v]) => `${k}: ${v}`)
+                        .join(', ')}
+                    </code>
+                  )}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function NavFailureView({
+  failure,
+}: {
+  failure: Extract<import('../shared/ipc/contracts.js').NavSnapshot, { ok: false }>;
+}): ReactElement {
+  const message = (() => {
+    switch (failure.kind) {
+      case 'not_connected':
+        return 'Not connected to a React Native app — connect CDP first.';
+      case 'no_bridge':
+        return 'No in-app bridge installed. Add the snippet below to your app, then click Refresh.';
+      case 'invalid_format':
+        return `Bridge published an unexpected state: ${failure.reason}`;
+      case 'timeout':
+        return 'Nav fetch timed out. The app may be busy — try again.';
+      case 'remote_exception':
+        return `JS error: ${failure.name}: ${failure.message}`;
+      case 'cdp_error':
+        return `CDP error: ${failure.message}`;
+    }
+  })();
+  return <p style={{ color: STATUS_COLOR.error, fontSize: 12 }}>{message}</p>;
+}
+
+const BRIDGE_SNIPPET = `// In your app's root component, once (and on every nav-state change if you want live updates):
+import { useEffect } from 'react';
+import { createNavigationContainerRef } from '@react-navigation/native';
+
+const navRef = createNavigationContainerRef();
+
+function App() {
+  useEffect(() => {
+    if (!navRef.isReady()) return;
+    const publish = () => {
+      globalThis.__ICARUS_NAV_STATE__ = JSON.parse(JSON.stringify(navRef.getRootState()));
+    };
+    publish();
+    return navRef.addListener('state', publish);
+  }, []);
+  return <NavigationContainer ref={navRef}>{/* ... */}</NavigationContainer>;
+}`;
+
+function BridgeSnippet(): ReactElement {
+  const [copied, setCopied] = useState(false);
+  const onCopy = async (): Promise<void> => {
+    try {
+      await navigator.clipboard.writeText(BRIDGE_SNIPPET);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // ignore — clipboard write may be blocked; user can copy manually
+    }
+  };
+  return (
+    <details style={{ marginTop: 12 }}>
+      <summary style={{ cursor: 'pointer', fontSize: 12, color: '#57606a' }}>
+        Bridge snippet (one-time setup)
+      </summary>
+      <div style={{ position: 'relative', marginTop: 6 }}>
+        <pre
+          style={{
+            margin: 0,
+            padding: 8,
+            background: '#fff',
+            border: '1px solid #eaeef2',
+            borderRadius: 4,
+            fontSize: 11,
+            whiteSpace: 'pre-wrap',
+            wordBreak: 'break-word',
+            color: '#24292f',
+          }}
+        >
+          {BRIDGE_SNIPPET}
+        </pre>
+        <button
+          type="button"
+          onClick={() => void onCopy()}
+          style={{
+            position: 'absolute',
+            top: 6,
+            right: 6,
+            padding: '2px 8px',
+            fontSize: 11,
+            cursor: 'pointer',
+            border: '1px solid #d0d7de',
+            borderRadius: 3,
+            background: '#fff',
+          }}
+        >
+          {copied ? '✓ Copied' : 'Copy'}
+        </button>
+      </div>
+    </details>
+  );
+}
+
+const navThStyle: React.CSSProperties = {
+  padding: '4px 6px',
+  fontSize: 11,
+  fontWeight: 600,
+  color: '#57606a',
+};
+const navTdStyle: React.CSSProperties = {
+  padding: '4px 6px',
+  fontSize: 12,
+};
+
+function previewNavParams(
+  params: Record<string, unknown> | undefined,
+): Readonly<Record<string, string>> {
+  if (params === undefined) return {};
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(params).slice(0, 5)) {
+    if (v === null) out[k] = 'null';
+    else if (v === undefined) out[k] = 'undefined';
+    else if (typeof v === 'string') out[k] = JSON.stringify(v);
+    else out[k] = String(v);
+  }
+  return out;
+}
 
 const btnStyle = { padding: '8px 16px', fontSize: 14, cursor: 'pointer' } as const;

@@ -21,6 +21,7 @@ import type {
   StorageGetResult,
   StorageSnapshot,
   PerfSnapshot,
+  NavSnapshot,
 } from './contracts.js';
 import type {
   AutoAttachSetInput,
@@ -198,6 +199,16 @@ export interface IcarusApi {
    * recent-error count. Pull-only on click; the renderer is the only door.
    */
   perfSnapshot(): Promise<PerfSnapshot>;
+
+  // --- M3 navigation inspector (E-20) ---
+  /**
+   * Take a snapshot of the running app's navigation state. Reads from the
+   * user-installed in-app bridge (`globalThis.__ICARUS_NAV_STATE__`).
+   * Returns a typed `no_bridge` failure if the app hasn't published the
+   * state — the renderer shows a copy-paste snippet for the user to drop
+   * into their app.
+   */
+  navSnapshot(): Promise<NavSnapshot>;
 }
 
 declare global {

@@ -28,6 +28,7 @@ import type {
   StorageGetResult,
   StorageSnapshot,
   PerfSnapshot,
+  NavSnapshot,
 } from '../shared/ipc/contracts.js';
 import type { IcarusApi, Unsubscribe } from '../shared/ipc/api.js';
 
@@ -106,6 +107,9 @@ const api: IcarusApi = {
   // M3 performance inspector (E-19, minimal viable): JS heap + metrics + render
   // hot-spots. Pull-only on click.
   perfSnapshot: () => ipcRenderer.invoke(CHANNELS.PERF_SNAPSHOT) as Promise<PerfSnapshot>,
+  // M3 navigation inspector (E-20): reads from the user-installed in-app bridge.
+  // Pull-only on click.
+  navSnapshot: () => ipcRenderer.invoke(CHANNELS.NAV_SNAPSHOT) as Promise<NavSnapshot>,
 };
 
 contextBridge.exposeInMainWorld('icarus', api);

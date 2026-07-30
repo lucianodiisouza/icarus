@@ -51,6 +51,7 @@ import {
 } from './component-tree-controller.js';
 import { createStorageController, registerStorageChannels } from './storage-controller.js';
 import { createPerfController, registerPerfChannels } from './perf-controller.js';
+import { createNavController, registerNavChannels } from './nav-controller.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -203,6 +204,9 @@ const storage = createStorageController();
 // hot-spots from the existing component tree (E-17). The `recentErrorCount` getter
 // is left unset in v1; the renderer treats it as 0 / "n/a".
 const perf = createPerfController();
+// M3 navigation inspector (E-20): reads the user-installed in-app bridge
+// (`globalThis.__ICARUS_NAV_STATE__`). One-time click — no live push in v1.
+const nav = createNavController();
 const cdp = createCdpController({
   unified,
   captureNetworkEvent: (event) => {
@@ -220,6 +224,7 @@ const cdp = createCdpController({
     componentTree.setCdpSend(adapted);
     storage.setCdpSend(adapted);
     perf.setCdpSend(adapted);
+    nav.setCdpSend(adapted);
   },
 });
 registerCdpChannels(router, cdp, () => autoAttach.markUserDisconnected());
@@ -247,6 +252,12 @@ registerStorageChannels({
 registerPerfChannels({
   router,
   controller: perf,
+});
+
+// Register the navigation inspector's IPC channel.
+registerNavChannels({
+  router,
+  controller: nav,
 });
 
 router.register(

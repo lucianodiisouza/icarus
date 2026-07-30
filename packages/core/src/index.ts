@@ -84,6 +84,11 @@ export { RENDER_HOTSPOT_PROBE } from './protocol/cdp/render-hotspots.js';
 export type { RenderHotspot, RenderHotspotProbe } from './protocol/cdp/render-hotspots.js';
 export { takePerfSnapshot } from './protocol/cdp/perf-snapshot.js';
 export type { PerfSnapshot } from './protocol/cdp/perf-snapshot.js';
+// M3 navigation inspector (E-20): reads from a user-installed in-app bridge.
+export { walkNavState, previewParams, NAV_PROBE } from './protocol/cdp/nav-probe.js';
+export type { NavStateSnapshot, NavRoute, NavProbe } from './protocol/cdp/nav-probe.js';
+export { takeNavSnapshot } from './protocol/cdp/nav-snapshot.js';
+export type { NavSnapshot } from './protocol/cdp/nav-snapshot.js';
 // M3 component tree inspector (E-17): Runtime.evaluate wrapper + fiber tree walker.
 export { evaluateOnTarget } from './protocol/cdp/eval.js';
 export type { EvaluateOptions, EvaluateResult } from './protocol/cdp/eval.js';
