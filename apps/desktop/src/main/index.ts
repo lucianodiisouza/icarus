@@ -49,6 +49,7 @@ import {
   createComponentTreeController,
   registerComponentTreeChannels,
 } from './component-tree-controller.js';
+import { createStorageController, registerStorageChannels } from './storage-controller.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -194,6 +195,9 @@ const feedNetworkInspector = (event: import('@icarus/core').CdpNetworkEvent): vo
 // M3 component tree inspector (E-17): owns the `Runtime.evaluate` round-trip + the
 // fiber walker. Shares the same `onCdpSendChange` hook as the network inspector.
 const componentTree = createComponentTreeController();
+// M3 storage inspector (E-18): same shape, three channels (list / get / delete)
+// for AsyncStorage and MMKV in the running app.
+const storage = createStorageController();
 const cdp = createCdpController({
   unified,
   captureNetworkEvent: (event) => {
@@ -209,6 +213,7 @@ const cdp = createCdpController({
       : null;
     networkInspector.setCdpSend(adapted);
     componentTree.setCdpSend(adapted);
+    storage.setCdpSend(adapted);
   },
 });
 registerCdpChannels(router, cdp, () => autoAttach.markUserDisconnected());
@@ -224,6 +229,12 @@ registerNetworkChannels({
 registerComponentTreeChannels({
   router,
   controller: componentTree,
+});
+
+// Register the storage inspector's IPC channels (list / get / delete).
+registerStorageChannels({
+  router,
+  controller: storage,
 });
 
 router.register(

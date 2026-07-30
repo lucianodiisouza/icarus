@@ -23,6 +23,10 @@ import type {
   NetworkListOutput,
   NetworkRecord,
   ComponentTreeSnapshot,
+  StorageBackendKind,
+  StorageDeleteResult,
+  StorageGetResult,
+  StorageSnapshot,
 } from '../shared/ipc/contracts.js';
 import type { IcarusApi, Unsubscribe } from '../shared/ipc/api.js';
 
@@ -90,6 +94,14 @@ const api: IcarusApi = {
   // Pull-only on click (or `Cmd-R`); the renderer never sees a stream of trees.
   componentTreeSnapshot: () =>
     ipcRenderer.invoke(CHANNELS.COMPONENT_TREE_SNAPSHOT) as Promise<ComponentTreeSnapshot>,
+  // M3 storage inspector (E-18): AsyncStorage / MMKV list / get / delete. The
+  // renderer is the only door — the IPC is never invoked any other way.
+  storageList: (input: { backend: StorageBackendKind }) =>
+    ipcRenderer.invoke(CHANNELS.STORAGE_LIST, input) as Promise<StorageSnapshot>,
+  storageGet: (input: { backend: StorageBackendKind; key: string }) =>
+    ipcRenderer.invoke(CHANNELS.STORAGE_GET, input) as Promise<StorageGetResult>,
+  storageDelete: (input: { backend: StorageBackendKind; key: string }) =>
+    ipcRenderer.invoke(CHANNELS.STORAGE_DELETE, input) as Promise<StorageDeleteResult>,
 };
 
 contextBridge.exposeInMainWorld('icarus', api);

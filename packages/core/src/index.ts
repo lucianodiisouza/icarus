@@ -77,6 +77,22 @@ export { evaluateOnTarget } from './protocol/cdp/eval.js';
 export type { EvaluateOptions, EvaluateResult } from './protocol/cdp/eval.js';
 export { walkReactTree, safeStringify, FIBER_ROOT_EXPRESSION } from './react-tree/walk.js';
 export type { ComponentNode, WalkOptions, FiberLike } from './react-tree/walk.js';
+// M3 storage inspectors (E-18): JS expressions + typed inspector wrappers.
+export {
+  storageListExpression,
+  storageGetExpression,
+  storageDeleteExpression,
+} from './protocol/storage/expressions.js';
+export type { StorageBackendKind } from './protocol/storage/expressions.js';
+export { listStorage, getStorageValue, deleteStorageKey } from './protocol/storage/inspect.js';
+export type {
+  StorageKey,
+  StorageFull,
+  StorageSnapshot,
+  StorageGetResult,
+  StorageDeleteResult,
+  ValueKind,
+} from './protocol/storage/inspect.js';
 export type {
   CdpTarget,
   ProxyDiscovery,

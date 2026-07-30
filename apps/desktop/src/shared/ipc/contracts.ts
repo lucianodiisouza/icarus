@@ -79,6 +79,21 @@ export const CHANNELS = {
    * or a typed "why this didn't work" error.
    */
   COMPONENT_TREE_SNAPSHOT: 'command:componentTree.snapshot',
+  /**
+   * Query: list the keys (with value previews) in a JS-side storage backend
+   * (E-18, M3 storage inspector). Pull-only, click-driven.
+   */
+  STORAGE_LIST: 'query:storage.list',
+  /**
+   * Query: fetch the full value of a single key in a JS-side storage backend.
+   * The renderer is the only thing that calls this — never auto.
+   */
+  STORAGE_GET: 'query:storage.get',
+  /**
+   * Command: remove a key from a JS-side storage backend. The renderer is
+   * the only door — opt-in per key, never auto.
+   */
+  STORAGE_DELETE: 'command:storage.delete',
 } as const;
 
 export type ChannelName = (typeof CHANNELS)[keyof typeof CHANNELS];
@@ -352,3 +367,23 @@ export type ComponentTreeSnapshot =
     }
   | { readonly ok: false; readonly kind: 'timeout' }
   | { readonly ok: false; readonly kind: 'cdp_error'; readonly message: string };
+
+// --- query:storage.list / query:storage.get / command:storage.delete (E-18) ---
+export type {
+  StorageBackendKind,
+  StorageKey,
+  StorageSnapshot,
+  StorageGetResult,
+  StorageDeleteResult,
+  ValueKind,
+} from '@icarus/core';
+export const storageBackendSchema = z.enum(['async-storage', 'mmkv']);
+export const storageListInputSchema = z.object({ backend: storageBackendSchema });
+export const storageGetInputSchema = z.object({
+  backend: storageBackendSchema,
+  key: z.string().min(1),
+});
+export const storageDeleteInputSchema = z.object({
+  backend: storageBackendSchema,
+  key: z.string().min(1),
+});

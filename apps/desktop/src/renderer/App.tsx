@@ -80,6 +80,8 @@ export function App(): ReactElement {
       <NetworkSection />
       <hr style={{ margin: '28px 0', border: 0, borderTop: '1px solid #eaeef2' }} />
       <ComponentTreeSection />
+      <hr style={{ margin: '28px 0', border: 0, borderTop: '1px solid #eaeef2' }} />
+      <StorageSection />
     </main>
   );
 }
@@ -1380,18 +1382,6 @@ function ComponentTreeSection(): ReactElement {
   const [scrollTop, setScrollTop] = useState(0);
   const [containerHeight, setContainerHeight] = useState(360);
 
-  // Cmd-R / Ctrl-R refreshes the tree while the panel is focused (devtools muscle memory).
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent): void => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'r') {
-        e.preventDefault();
-        void refresh();
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [refresh]);
-
   const refresh = useCallback(async () => {
     setSnapshot({ kind: 'loading' });
     try {
@@ -1420,6 +1410,18 @@ function ComponentTreeSection(): ReactElement {
     setContainerHeight(el.clientHeight);
     return () => ro.disconnect();
   }, []);
+
+  // Cmd-R / Ctrl-R refreshes the tree while the panel is focused (devtools muscle memory).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'r') {
+        e.preventDefault();
+        void refresh();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [refresh]);
 
   const roots = snapshot.kind === 'ready' ? snapshot.roots : [];
   const query = nameQuery.toLowerCase();
@@ -1728,6 +1730,360 @@ function TreeRow({
       )}
     </div>
   );
+}
+
+/**
+ * E-18 storage inspector. Backend selector (AsyncStorage | MMKV) → Refresh →
+ * list of keys with value previews → click a row to expand the full value + a
+ * Delete button. Pull-only on click; no auto-refresh.
+ */
+function StorageSection(): ReactElement {
+  type Backend = 'async-storage' | 'mmkv';
+  const [backend, setBackend] = useState<Backend>('async-storage');
+  const [snapshot, setSnapshot] = useState<
+    | { kind: 'idle' }
+    | { kind: 'loading' }
+    | { kind: 'ready'; keys: readonly import('../shared/ipc/contracts.js').StorageKey[] }
+    | { kind: 'error'; message: string }
+  >({ kind: 'idle' });
+  const [nameQuery, setNameQuery] = useState<string>('');
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const listRef = useRef<HTMLDivElement>(null);
+  const [scrollTop, setScrollTop] = useState(0);
+  const [containerHeight, setContainerHeight] = useState(280);
+
+  const refresh = useCallback(async () => {
+    setSnapshot({ kind: 'loading' });
+    try {
+      const result = await window.icarus.storageList({ backend });
+      if (result.ok) {
+        setSnapshot({ kind: 'ready', keys: result.keys });
+      } else {
+        setSnapshot({ kind: 'error', message: formatStorageError(result) });
+      }
+    } catch (e) {
+      setSnapshot({ kind: 'error', message: e instanceof Error ? e.message : String(e) });
+    }
+  }, [backend]);
+
+  useEffect(() => {
+    const el = listRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => setContainerHeight(el.clientHeight));
+    ro.observe(el);
+    setContainerHeight(el.clientHeight);
+    return () => ro.disconnect();
+  }, []);
+
+  // When the user changes backend, auto-refresh.
+  useEffect(() => {
+    if (snapshot.kind === 'idle') return;
+    void refresh();
+  }, [backend]);
+
+  // Refresh on `icarus:storage-changed` (fired by a row's Delete).
+  useEffect(() => {
+    const onChanged = (e: Event): void => {
+      const detail = (e as CustomEvent<{ backend: string }>).detail;
+      if (detail.backend === backend) void refresh();
+    };
+    window.addEventListener('icarus:storage-changed', onChanged);
+    return () => window.removeEventListener('icarus:storage-changed', onChanged);
+  }, [backend]);
+
+  const visible =
+    snapshot.kind === 'ready'
+      ? snapshot.keys.filter((k) => {
+          if (!nameQuery) return true;
+          const q = nameQuery.toLowerCase();
+          return k.key.toLowerCase().includes(q) || k.preview.toLowerCase().includes(q);
+        })
+      : [];
+
+  // Virtualization (E-11 pattern).
+  const total = visible.length;
+  const startIdx = Math.max(0, Math.floor(scrollTop / STORAGE_ROW_HEIGHT) - VIRT_OVERSCAN);
+  const endIdx = Math.min(
+    total,
+    Math.ceil((scrollTop + containerHeight) / STORAGE_ROW_HEIGHT) + VIRT_OVERSCAN,
+  );
+  const windowEntries = visible.slice(startIdx, endIdx);
+  const topPad = startIdx * STORAGE_ROW_HEIGHT;
+  const bottomPad = Math.max(0, (total - endIdx) * STORAGE_ROW_HEIGHT);
+
+  return (
+    <section>
+      <h2 style={{ fontSize: 16 }}>Storage (E-18 · AsyncStorage + MMKV)</h2>
+      <p style={{ color: '#57606a', marginTop: 0, fontSize: 13 }}>
+        Peek at the app's JS-side key-value stores. Click <strong>Refresh</strong> (or <kbd>⌘R</kbd>
+        ) to take a snapshot. Delete is opt-in per row.
+      </p>
+      <div
+        style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8, flexWrap: 'wrap' }}
+      >
+        <label style={{ fontSize: 12, color: '#57606a' }}>
+          Backend:{' '}
+          <select
+            value={backend}
+            onChange={(e) => setBackend(e.target.value as Backend)}
+            style={{
+              padding: '2px 6px',
+              fontSize: 12,
+              border: '1px solid #d0d7de',
+              borderRadius: 4,
+            }}
+          >
+            <option value="async-storage">AsyncStorage</option>
+            <option value="mmkv">MMKV</option>
+          </select>
+        </label>
+        <button
+          type="button"
+          onClick={() => void refresh()}
+          disabled={snapshot.kind === 'loading'}
+          style={btnStyle}
+        >
+          {snapshot.kind === 'loading' ? 'Refreshing…' : 'Refresh'}
+        </button>
+        <input
+          type="text"
+          value={nameQuery}
+          onChange={(e) => setNameQuery(e.target.value)}
+          placeholder="filter by key or value…"
+          style={{
+            padding: '4px 8px',
+            fontSize: 12,
+            border: '1px solid #d0d7de',
+            borderRadius: 4,
+            minWidth: 180,
+          }}
+        />
+        <span style={{ color: '#8c959f', fontSize: 12, marginLeft: 'auto' }}>
+          {snapshot.kind === 'ready' ? `${visible.length} / ${snapshot.keys.length}` : '—'}
+        </span>
+      </div>
+      <div
+        ref={listRef}
+        onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}
+        style={{
+          height: 280,
+          overflowY: 'auto',
+          border: '1px solid #eaeef2',
+          borderRadius: 6,
+          padding: 0,
+          fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+          fontSize: 12.5,
+          background: '#f6f8fa',
+        }}
+      >
+        {snapshot.kind === 'idle' && (
+          <p style={{ color: '#8c959f', margin: 8 }}>
+            No snapshot yet. Click <strong>Refresh</strong> to take one.
+          </p>
+        )}
+        {snapshot.kind === 'loading' && <p style={{ color: '#8c959f', margin: 8 }}>Loading…</p>}
+        {snapshot.kind === 'error' && (
+          <p style={{ color: STATUS_COLOR.error, margin: 8, fontSize: 12 }}>{snapshot.message}</p>
+        )}
+        {snapshot.kind === 'ready' && visible.length === 0 && (
+          <p style={{ color: '#8c959f', margin: 8, fontSize: 12 }}>
+            {snapshot.keys.length === 0 ? 'No keys in this store.' : 'No keys match the filter.'}
+          </p>
+        )}
+        {snapshot.kind === 'ready' && windowEntries.length > 0 && (
+          <>
+            <div style={{ height: topPad }} />
+            {windowEntries.map((k) => (
+              <StorageRow
+                key={k.key}
+                backend={backend}
+                keyName={k.key}
+                preview={k.preview}
+                kind={k.kind}
+                isExpanded={expanded.has(k.key)}
+                onToggle={() => {
+                  setExpanded((prev) => {
+                    const next = new Set(prev);
+                    if (next.has(k.key)) next.delete(k.key);
+                    else next.add(k.key);
+                    return next;
+                  });
+                }}
+              />
+            ))}
+            <div style={{ height: bottomPad }} />
+          </>
+        )}
+      </div>
+    </section>
+  );
+}
+
+const STORAGE_ROW_HEIGHT = 28;
+
+function StorageRow({
+  backend,
+  keyName,
+  preview,
+  kind,
+  isExpanded,
+  onToggle,
+}: {
+  backend: 'async-storage' | 'mmkv';
+  keyName: string;
+  preview: string;
+  kind: 'string' | 'number' | 'boolean' | 'object' | 'null' | 'unknown';
+  isExpanded: boolean;
+  onToggle: () => void;
+}): ReactElement {
+  const [full, setFull] = useState<
+    | { kind: 'idle' }
+    | { kind: 'loading' }
+    | { kind: 'ready'; value: string; valueKind: typeof kind }
+    | { kind: 'error'; message: string }
+  >({ kind: 'idle' });
+
+  const loadFull = async (): Promise<void> => {
+    setFull({ kind: 'loading' });
+    try {
+      const result = await window.icarus.storageGet({ backend, key: keyName });
+      if (result.ok) {
+        setFull({
+          kind: 'ready',
+          value: result.value.value,
+          valueKind: result.value.kind,
+        });
+      } else {
+        setFull({ kind: 'error', message: formatStorageError(result) });
+      }
+    } catch (e) {
+      setFull({ kind: 'error', message: e instanceof Error ? e.message : String(e) });
+    }
+  };
+
+  const onDelete = async (): Promise<void> => {
+    if (!confirm(`Delete key "${keyName}"?`)) return;
+    const result = await window.icarus.storageDelete({ backend, key: keyName });
+    if (!result.ok) {
+      alert(`Delete failed: ${formatStorageError(result)}`);
+    } else {
+      window.dispatchEvent(new CustomEvent('icarus:storage-changed', { detail: { backend } }));
+    }
+  };
+
+  // Listen for the storage-changed event to refresh our row (if expanded).
+  useEffect(() => {
+    const onChanged = (e: Event): void => {
+      const detail = (e as CustomEvent<{ backend: string }>).detail;
+      if (detail.backend !== backend) return;
+      if (full.kind === 'ready') {
+        void loadFull();
+      }
+    };
+    window.addEventListener('icarus:storage-changed', onChanged);
+    return () => window.removeEventListener('icarus:storage-changed', onChanged);
+  }, [backend, full.kind]);
+  return (
+    <div style={{ borderBottom: '1px solid #f0f3f6' }}>
+      <button
+        type="button"
+        onClick={onToggle}
+        style={{
+          width: '100%',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          padding: '4px 8px',
+          background: 'transparent',
+          border: 'none',
+          cursor: 'pointer',
+          textAlign: 'left',
+          font: 'inherit',
+          color: 'inherit',
+          height: STORAGE_ROW_HEIGHT,
+        }}
+      >
+        <span style={{ color: '#8c959f', width: 10 }}>{isExpanded ? '▾' : '▸'}</span>
+        <span style={{ flex: 1, color: '#24292f' }}>{keyName}</span>
+        <span
+          style={{
+            color: '#8c959f',
+            fontSize: 11,
+            padding: '0 4px',
+            background: '#eaeef2',
+            borderRadius: 3,
+          }}
+        >
+          {kind}
+        </span>
+        <span
+          style={{
+            color: '#24292f',
+            maxWidth: 280,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {preview}
+        </span>
+      </button>
+      {isExpanded && (
+        <div style={{ padding: '0 8px 8px 28px', fontSize: 12 }}>
+          <div style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
+            <button type="button" onClick={() => void loadFull()} style={smallBtn}>
+              {full.kind === 'loading' ? 'Loading…' : 'Load full value'}
+            </button>
+            <button
+              type="button"
+              onClick={() => void onDelete()}
+              style={{ ...smallBtn, color: '#cf222e' }}
+            >
+              Delete
+            </button>
+          </div>
+          {full.kind === 'ready' && (
+            <pre
+              style={{
+                margin: 0,
+                padding: 8,
+                background: '#fff',
+                border: '1px solid #eaeef2',
+                borderRadius: 4,
+                fontSize: 11.5,
+                whiteSpace: 'pre-wrap',
+                wordBreak: 'break-word',
+              }}
+            >
+              {full.value}
+            </pre>
+          )}
+          {full.kind === 'error' && (
+            <p style={{ color: STATUS_COLOR.error, fontSize: 11 }}>{full.message}</p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function formatStorageError(result: { kind: string; name?: string; message?: string }): string {
+  switch (result.kind) {
+    case 'not_connected':
+      return 'Not connected to a React Native app — connect CDP first.';
+    case 'no_module':
+      return 'Storage module not installed in this app. (Is it a fresh RN template?)';
+    case 'no_key':
+      return 'Key not found.';
+    case 'timeout':
+      return 'Storage fetch timed out. The app may be busy — try again.';
+    case 'remote_exception':
+      return `JS error: ${result.name ?? 'Error'}: ${result.message ?? 'unknown'}`;
+    case 'cdp_error':
+      return `CDP error: ${result.message ?? 'unknown'}`;
+    default:
+      return `Unknown error: ${result.kind}`;
+  }
 }
 
 const btnStyle = { padding: '8px 16px', fontSize: 14, cursor: 'pointer' } as const;

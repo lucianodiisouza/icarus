@@ -16,6 +16,10 @@ import type {
   NetworkListOutput,
   NetworkRecord,
   ComponentTreeSnapshot,
+  StorageBackendKind,
+  StorageDeleteResult,
+  StorageGetResult,
+  StorageSnapshot,
 } from './contracts.js';
 import type {
   AutoAttachSetInput,
@@ -167,6 +171,24 @@ export interface IcarusApi {
    * message rather than crash.
    */
   componentTreeSnapshot(): Promise<ComponentTreeSnapshot>;
+
+  // --- M3 storage inspector (E-18) ---
+  /**
+   * List the keys (with value previews) in a JS-side storage backend. Pull-only,
+   * click-driven. Returns a typed union: `ok: true` with `keys: StorageKey[]`,
+   * or `ok: false` with a reason (not_connected, no_module, ...).
+   */
+  storageList(input: { backend: StorageBackendKind }): Promise<StorageSnapshot>;
+  /**
+   * Get the full value of a single key. The renderer is the only door — the
+   * IPC is never auto-fired.
+   */
+  storageGet(input: { backend: StorageBackendKind; key: string }): Promise<StorageGetResult>;
+  /**
+   * Remove a key from a JS-side storage backend. The renderer is the only
+   * door — opt-in per key, never auto.
+   */
+  storageDelete(input: { backend: StorageBackendKind; key: string }): Promise<StorageDeleteResult>;
 }
 
 declare global {
