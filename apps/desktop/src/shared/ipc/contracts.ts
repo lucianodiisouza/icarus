@@ -58,6 +58,20 @@ export const CHANNELS = {
    * file (M3 canary in `log-export.test.ts`).
    */
   LOG_EXPORT: 'command:log.export',
+  /**
+   * Query: snapshot the network inspector's current records (E-16, M3 slice 2).
+   * One record per HTTP call, correlated by the CDP `requestId`.
+   */
+  NETWORK_LIST: 'query:network.list',
+  /** Command: wipe the inspector's captured records. */
+  NETWORK_CLEAR: 'command:network.clear',
+  /**
+   * Command: opt-in body fetch (request or response) for a captured `requestId`. The
+   * `Network.getRequestPostData` / `Network.getResponseBody` round-trip is expensive
+   * (it talks back to the JS context) and can fail (response GC'd, etc.), so it is
+   * only ever fired on a renderer's explicit click — never auto.
+   */
+  NETWORK_FETCH_BODY: 'command:network.fetchBody',
 } as const;
 
 export type ChannelName = (typeof CHANNELS)[keyof typeof CHANNELS];
@@ -111,6 +125,8 @@ export const EVENTS = {
   AI_DONE: 'event:ai.done',
   /** The assistant answer stream failed (or no key). */
   AI_ERROR: 'event:ai.error',
+  /** A network record was added or updated (E-16, M3 network inspector). */
+  NETWORK_RECORD: 'event:network.record',
 } as const;
 
 export type CdpConnectionStatus =
@@ -290,3 +306,22 @@ export interface LogExportOutput {
 }
 /** The `ExportCancelledError` is surfaced to the renderer as a typed IPC rejection
  *  (Electron rejects the `invoke`); the renderer shows no error UI for this case. */
+
+// --- query:network.list / command:network.{clear,fetchBody} (E-16, M3 network inspector) ---
+import type { NetworkRecord, NetworkBodyResult } from '@icarus/core';
+// Re-export so the renderer's `import type { NetworkRecord } from '../shared/ipc/contracts.js'`
+// works — the renderer should never reach into `@icarus/core` directly (it's an Electron-side
+// package conceptually, even though it's Electron-free).
+export type { NetworkRecord, NetworkBodyResult } from '@icarus/core';
+export const networkListInputSchema = z.void();
+export type NetworkListOutput = readonly NetworkRecord[];
+
+export const networkClearInputSchema = z.void();
+
+/** Body fetch is opt-in (per-request in the inspector UI). */
+export const networkFetchBodyInputSchema = z.object({
+  requestId: z.string().min(1),
+  kind: z.enum(['request', 'response']),
+});
+export type NetworkFetchBodyInput = z.infer<typeof networkFetchBodyInputSchema>;
+export type NetworkFetchBodyOutput = NetworkBodyResult;

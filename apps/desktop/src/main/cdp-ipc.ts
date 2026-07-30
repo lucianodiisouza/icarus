@@ -35,13 +35,26 @@ export interface CdpController {
   readonly disconnect: () => Promise<CdpCommandOutput>;
   /** True while connecting or connected — the auto-attach busy check (TD-16). */
   readonly isBusy: () => boolean;
+  /**
+   * The current session's `client.send` for opt-in CDP round-trips (E-16: the network
+   * inspector's body fetches). Returns `undefined` when disconnected. The caller is
+   * responsible for not spamming it.
+   */
+  readonly send: () => CdpClient['send'] | undefined;
 }
 
 export function createCdpController(deps: {
   readonly unified: UnifiedLogController;
   readonly captureNetworkEvent: (event: CdpNetworkEvent) => void;
+  /**
+   * Called every time the session's CDP `send` becomes available or unavailable. The
+   * network inspector (E-16) uses this to wire its body-fetch wrapper to the live
+   * connection. Default: no-op (the inspector is opt-in).
+   */
+  readonly onCdpSendChange?: (send: CdpClient['send'] | null) => void;
 }): CdpController {
   let session: CdpSession | undefined;
+  const onSendChange = deps.onCdpSendChange ?? (() => {});
 
   const createSession = (window: BrowserWindow): CdpSession => {
     const push = (channel: string, payload: unknown): void => {
@@ -60,7 +73,13 @@ export function createCdpController(deps: {
         push(EVENTS.CDP_NETWORK, event);
         deps.captureNetworkEvent(event); // retain for the assistant's bounded context (E-13)
       },
-      onStatus: (event) => push(EVENTS.CDP_STATUS, event),
+      onStatus: (event) => {
+        push(EVENTS.CDP_STATUS, event);
+        // The session's `send` becomes live the moment the status flips to 'connected'
+        // and goes away on any other state. Forwarding the status event is the cleanest
+        // hook for the inspector's body-fetch wrapper.
+        onSendChange(event.status === 'connected' ? (session?.send ?? null) : null);
+      },
     });
   };
 
@@ -71,6 +90,7 @@ export function createCdpController(deps: {
     detach: async () => {
       await session?.disconnect();
       session = undefined;
+      onSendChange(null);
     },
     connect: async () => {
       await session?.connect();
@@ -78,9 +98,11 @@ export function createCdpController(deps: {
     },
     disconnect: async () => {
       await session?.disconnect();
+      onSendChange(null);
       return { status: 'disconnected' };
     },
     isBusy: () => session?.status === 'connecting' || session?.status === 'connected',
+    send: () => session?.send,
   };
 }
 

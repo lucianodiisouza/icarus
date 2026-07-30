@@ -44,6 +44,7 @@ import {
 import { createCdpController, registerCdpChannels } from './cdp-ipc.js';
 import { LogExporter } from './log-exporter.js';
 import { createDefaultLogExporterDeps, registerLogExportChannel } from './log-exporter-ipc.js';
+import { createNetworkController, registerNetworkChannels } from './network-controller.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -96,6 +97,13 @@ const logSubscriptions = new Map<number, () => void>();
 
 /** Unified-log disk persistence (TD-19, OQ-9): bounded crash-recoverable tail; see ADR-0012. */
 const logPersistence = createUnifiedLogPersistence(app.getPath('userData'), unified);
+
+/**
+ * The M3 network inspector (E-16). A live `NetworkRecorder` that owns the correlated
+ * model + opt-in body fetches. The CDP session feeds it raw `CdpNetworkEvent`s alongside
+ * the assistant's bounded context (E-13); both are independent sinks for the same stream.
+ */
+const networkInspector = createNetworkController();
 
 /**
  * The AI assistant (E-13, T-13.5): every question crosses the E-12 boundary before egress, the
@@ -173,8 +181,39 @@ registerHandlers(router);
  * The live CDP session (E-14), wired in `cdp-ipc` to keep this entry thin. One session per window;
  * the connect/disconnect commands and the auto-attach policy drive it through the controller.
  */
-const cdp = createCdpController({ unified, captureNetworkEvent });
+// M3 network inspector (E-16): feed every CDP network event into the recorder alongside
+// the assistant's bounded context. Both sinks are independent; the inspector correlates
+// into records, the assistant keeps a recent-events ring buffer.
+const feedNetworkInspector = (event: import('@icarus/core').CdpNetworkEvent): void => {
+  networkInspector.feed(event);
+};
+const cdp = createCdpController({
+  unified,
+  captureNetworkEvent: (event) => {
+    captureNetworkEvent(event);
+    feedNetworkInspector(event);
+  },
+  // E-16: the inspector's opt-in body fetcher (Network.getRequestPostData / getResponseBody)
+  // needs the live CDP `send` — forward it on every status change. The session's `send`
+  // has the same shape as `CdpSendLike.send`; the cast is the single point of adaptation.
+  onCdpSendChange: (send) => {
+    networkInspector.setCdpSend(
+      send
+        ? {
+            send: send as unknown as import('@icarus/core').CdpSendLike['send'],
+          }
+        : null,
+    );
+  },
+});
 registerCdpChannels(router, cdp, () => autoAttach.markUserDisconnected());
+
+// Register the network inspector's IPC channels + per-window record push.
+registerNetworkChannels({
+  router,
+  controller: networkInspector,
+  window: () => BrowserWindow.getAllWindows()[0] ?? null,
+});
 
 router.register(
   CHANNELS.METRO_START,

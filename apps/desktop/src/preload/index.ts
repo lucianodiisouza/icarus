@@ -18,6 +18,10 @@ import type {
   AiErrorEvent,
   LogExportInput,
   LogExportOutput,
+  NetworkBodyResult,
+  NetworkFetchBodyInput,
+  NetworkListOutput,
+  NetworkRecord,
 } from '../shared/ipc/contracts.js';
 import type { IcarusApi, Unsubscribe } from '../shared/ipc/api.js';
 
@@ -74,6 +78,13 @@ const api: IcarusApi = {
    */
   logExport: (input: LogExportInput) =>
     ipcRenderer.invoke(CHANNELS.LOG_EXPORT, input) as Promise<LogExportOutput>,
+  // M3 network inspector (E-16): correlated records + opt-in body fetch.
+  networkList: () => ipcRenderer.invoke(CHANNELS.NETWORK_LIST) as Promise<NetworkListOutput>,
+  networkClear: () => ipcRenderer.invoke(CHANNELS.NETWORK_CLEAR) as Promise<void>,
+  networkFetchBody: (input: NetworkFetchBodyInput) =>
+    ipcRenderer.invoke(CHANNELS.NETWORK_FETCH_BODY, input) as Promise<NetworkBodyResult>,
+  onNetworkRecord: (handler: (record: NetworkRecord) => void) =>
+    subscribe(EVENTS.NETWORK_RECORD, handler),
 };
 
 contextBridge.exposeInMainWorld('icarus', api);

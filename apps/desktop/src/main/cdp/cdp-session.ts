@@ -112,6 +112,16 @@ export class CdpSession {
   }
 
   /**
+   * The current CDP `client.send` (for opt-in body fetches like the E-16 network
+   * inspector's request/response body). Returns `undefined` when the session is not
+   * connected. The caller is responsible for not spamming it (the inspector only fires
+   * this on a user click).
+   */
+  get send(): CdpClientLike['send'] | undefined {
+    return this.#client?.send;
+  }
+
+  /**
    * Connect to the first attachable RN app and start streaming its console + network events.
    * Subsequent drops of the underlying connection trigger auto-reconnect; an explicit
    * `disconnect()` is the only way to stop it.
@@ -181,6 +191,11 @@ export class CdpSession {
     );
     client.on(NETWORK_EVENTS.LOADING_FAILED, (params) =>
       this.#forwardNetwork('Network.loadingFailed', params),
+    );
+    // E-16: also subscribe to `loadingFinished` so the inspector can show the body size
+    // and the final end-timestamp. Same best-effort posture as the other Network events.
+    client.on(NETWORK_EVENTS.LOADING_FINISHED, (params) =>
+      this.#forwardNetwork('Network.loadingFinished', params),
     );
 
     // If connect() itself throws, unsubscribe so the close we trigger via teardown

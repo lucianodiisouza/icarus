@@ -61,6 +61,17 @@ export { formatConsoleEvent, previewRemoteObject } from './protocol/cdp/console.
 export type { CdpConsoleEntry } from './protocol/cdp/console.js';
 export { formatNetworkEvent, NETWORK_EVENTS } from './protocol/cdp/network.js';
 export type { CdpNetworkEvent, CdpNetworkEventKind } from './protocol/cdp/network.js';
+// M3 network inspector (E-16): correlated records + the live recorder.
+export { NetworkRecorder } from './protocol/network/recorder.js';
+export type { NetworkRecordHandler, NetworkRecorderOptions } from './protocol/network/recorder.js';
+export { aggregateNetworkEvents, durationMs, ttfbMs } from './protocol/network/aggregate.js';
+export type { NetworkRecord, HttpMethod } from './protocol/network/aggregate.js';
+export { fetchRequestBody, fetchResponseBody } from './protocol/cdp/network-body.js';
+export type {
+  NetworkBodyResult,
+  NetworkBodyOptions,
+  CdpSendLike,
+} from './protocol/cdp/network-body.js';
 export type {
   CdpTarget,
   ProxyDiscovery,

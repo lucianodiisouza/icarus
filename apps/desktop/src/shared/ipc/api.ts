@@ -11,6 +11,10 @@ import type {
   MetroStartOutput,
   LogExportInput,
   LogExportOutput,
+  NetworkBodyResult,
+  NetworkFetchBodyInput,
+  NetworkListOutput,
+  NetworkRecord,
 } from './contracts.js';
 import type {
   AutoAttachSetInput,
@@ -133,6 +137,24 @@ export interface IcarusApi {
    * treats this as a clean no-op).
    */
   logExport(input: LogExportInput): Promise<LogExportOutput>;
+
+  // --- M3 network inspector (E-16) ---
+  /** Snapshot of the inspector's current correlated records. */
+  networkList(): Promise<NetworkListOutput>;
+  /** Wipe the inspector's records. */
+  networkClear(): Promise<void>;
+  /**
+   * Opt-in body fetch for a `requestId`. The CDP round-trip is expensive (and can fail
+   * for GC'd responses / binary bodies), so this is only ever fired by a renderer's
+   * explicit click on "Fetch request/response body" — never auto.
+   */
+  networkFetchBody(input: NetworkFetchBodyInput): Promise<NetworkBodyResult>;
+  /**
+   * Per-record push: fires when a record is added or updated. Subscribe once on mount;
+   * the handler is called with the full record. Low volume (per HTTP call), so no
+   * batcher is needed.
+   */
+  onNetworkRecord(handler: (record: NetworkRecord) => void): Unsubscribe;
 }
 
 declare global {

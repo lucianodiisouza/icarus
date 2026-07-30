@@ -1,4 +1,9 @@
-# M3 First Slice Closeout — Opt-in Unified-Log Export (E-15) — 2026-07-29
+# M3 Progress Report — Slices 1 & 2 (E-15, E-16) — 2026-07-30
+
+> M2 closed clean with an explicit, opt-in follow-on named in writing. M3 is the
+> additive-integrations backlog. The first two slices (E-15, E-16) are shipped on
+> `main` and gated by tests; the rest of the backlog (component tree, storage
+> inspectors, performance, navigation, release workflow) is queued.
 
 > The M2 closeout named one explicit, opt-in follow-on:
 > > "**opt-in full session export/replay (an explicit feature on top, never a default).**"
@@ -90,7 +95,7 @@ From the plan doc — each line has a trigger to revisit:
   The filter is the user's intent; exporting the unfiltered log would surprise
   them.
 
-## M3 → next-slice gate
+## M3 → rest-of-the-backlog gate
 
 E-15 pays the M1→M2→M3 architectural promise in: **adding a real feature module
 needed zero core changes.** The next M3 slice is a real product-priority call —
@@ -99,3 +104,83 @@ that call is made (network inspector upgrade, component tree, storage
 inspector, performance, …), the **same shape** applies: a typed IPC channel, a
 pure `core` piece, a tested wiring, a renderer surface, zero core changes.
 This slice is the proof that the foundation carries it.
+
+---
+
+## Follow-up: E-16 (M3 slice 2) — Network Inspector Upgrade — 2026-07-30
+
+> **Verdict:** Engineering-complete. One HTTP call per row, expandable with
+> headers + opt-in body fetch. The data was already being captured (E-14 slice
+> 5); the upgrade is the **correlated model** + the **real inspector UI**.
+
+**What shipped:**
+
+- `core/protocol/network/aggregate.ts` — pure `aggregateNetworkEvents(events): NetworkRecord[]`
+  that correlates raw CDP `Network.*` events into one record per HTTP call, keyed
+  on the stable `requestId`. Headers, timing, status, failure, body size — all
+  preserved through correlation. 15 tests, including the **E-16 canary** (same
+  `requestId` events end up in one record; a planted header on a request event
+  survives correlation onto the record).
+- `core/protocol/network/recorder.ts` — `NetworkRecorder`: a live sink (mirrors
+  `UnifiedLogController`'s shape) that owns the correlated model, supports
+  per-record subscription, and bounds itself to 500 records (Chrome DevTools'
+  cap). 9 tests, including the canary (E-16 canary at the live path).
+- `core/protocol/cdp/network-body.ts` — `fetchRequestBody` /
+  `fetchResponseBody` wrappers around `Network.getRequestPostData` and
+  `Network.getResponseBody`. **Opt-in only** (the renderer never auto-fetches).
+  Size-capped at 256 KB, timeout-capped at 5s, binary responses skipped, errors
+  surfaced as a typed result (not a thrown error). 8 tests.
+- `desktop/main/network-controller.ts` — the desktop wiring. Owns the
+  recorder, owns the body-fetch wrapper, owns the IPC channels. Same shape as
+  `AssistantBridge` (T-13.5) — injectable, unit-testable, Electron-free
+  business logic.
+- `desktop/main/cdp-ipc.ts` — extended: the session's `send` is now exposed
+  via `CdpController.send` and a `onCdpSendChange` callback lets the inspector
+  re-wire its body fetcher on connect / disconnect. Zero behavior change for
+  the existing console / network fan-out; the wiring just adds a 2nd consumer.
+- Renderer: `NetworkSection` rebuilt as a real inspector. One row per HTTP call,
+  collapsed by default; click to expand for headers + opt-in body fetch.
+  Filter chips (method, status range) + URL substring search. Status pill
+  (200/3xx/4xx/5xx/fail) + method + URL + duration at a glance. Virtualized
+  using the same hand-rolled pattern as the unified-log panel.
+
+**Numbers:**
+
+| | E-15 → E-16 | Δ |
+|---|---|---|
+| Core unit tests | 278 | **312** (+34) |
+| Desktop unit tests | 62 | **76** (+14) |
+| E2E tests | 10 | 10 (unchanged) |
+| Core coverage | 87.65% | **88.50%** (still well above 80% gate) |
+| Lint warnings | 0 | 0 |
+| New IPC channels | 3 (`log.export`) | **+3** (`network.list`, `network.clear`, `network.fetchBody`) |
+| New IPC events | 0 | **+1** (`event:network.record`) |
+
+**Architecture review:**
+
+- **The recorder is the source of truth; the renderer is a view.** The
+  renderer never correlates — it subscribes to per-record pushes and asks for
+  a snapshot on mount. The correlation lives in `core` where it can be unit
+  tested without a window. Same shape as `UnifiedLogController` / `ModuleRegistry`.
+- **Body fetches are a separate IPC channel, never auto-fired.** The
+  renderer's "Fetch request body" / "Fetch response body" buttons are the
+  only door. CDP `getResponseBody` is a real round-trip; we don't burn it on
+  every response.
+- **Zero core changes were forced by E-16.** The unified-log fan-out
+  (E-10), the AI assistant's bounded context (E-13), and the reaper's
+  injected store (TD-11) — all reused, none changed.
+- **The 4th Network event (`loadingFinished`) is now subscribed**, giving
+  the inspector the body's wire size and a stable "ended" timestamp. The
+  session itself didn't change shape; it just gained one subscription.
+
+**Out of scope (in writing, in the plan doc):**
+
+- Binary body surfacing (images, video). v1 is text-only.
+- WebSocket frames. CDP has a separate event set; v1 ignores them.
+- Edit & replay, request blocking, HAR export, throttling.
+
+**Next M3 slice candidates (same evidence-driven rule):** component tree
+(E-17), storage inspectors (E-18), performance (E-19), navigation (E-20),
+release workflow (E-21). Each is a real, scoped feature with a plan doc and
+its own canary.
+

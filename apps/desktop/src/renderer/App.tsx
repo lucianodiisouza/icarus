@@ -4,7 +4,6 @@ import type { DoctorCheckOutput } from '../shared/ipc/contracts.js';
 import type {
   CdpConnectionStatus,
   CdpLogEvent,
-  CdpNetworkEventOut,
   CdpNetworkSupport,
   MetroLogEventOut,
   MetroStatus,
@@ -12,6 +11,8 @@ import type {
   ProjectKind,
   SimDevice,
   UnifiedLogEntryOut,
+  NetworkRecord,
+  NetworkBodyResult,
 } from '../shared/ipc/contracts.js';
 
 const STATUS_COLOR: Record<string, string> = {
@@ -37,14 +38,9 @@ const VIRT_ITEM_HEIGHT = 18; // px per row in the virtualized log list
 const VIRT_OVERSCAN = 8; // extra rows above/below the visible window
 
 const MAX_LOGS = 500;
-const MAX_NETWORK = 200;
 const MAX_METRO = 200;
 
 interface LogRow extends CdpLogEvent {
-  readonly key: number;
-}
-
-interface NetworkRow extends CdpNetworkEventOut {
   readonly key: number;
 }
 
@@ -911,40 +907,91 @@ function MetroSection(): ReactElement {
 }
 
 function NetworkSection(): ReactElement {
+  // E-16: the real network inspector. One row per HTTP call, expandable, with
+  // method/status/duration at a glance, headers + opt-in body fetch when expanded.
+  // Backed by the `NetworkRecorder` in main (E-16) — one source of truth, the renderer
+  // just subscribes.
   const [support, setSupport] = useState<CdpNetworkSupport | undefined>(undefined);
   const [status, setStatus] = useState<CdpConnectionStatus>('disconnected');
-  const [events, setEvents] = useState<NetworkRow[]>([]);
-  const keyRef = useRef(0);
+  const [records, setRecords] = useState<NetworkRecord[]>([]);
+  const [textQuery, setTextQuery] = useState<string>('');
+  const [methodFilter, setMethodFilter] = useState<Set<string>>(
+    new Set(['GET', 'POST', 'PUT', 'DELETE', 'PATCH']),
+  );
+  const [statusFilter, setStatusFilter] = useState<Set<string>>(
+    new Set(['2xx', '3xx', '4xx', '5xx', 'failed']),
+  );
   const listRef = useRef<HTMLDivElement>(null);
+  const [scrollTop, setScrollTop] = useState(0);
+  const [containerHeight, setContainerHeight] = useState(280);
 
   useEffect(() => {
-    const offNet = window.icarus.onCdpNetwork((entry) => {
-      setEvents((prev) => {
-        const next = [...prev, { ...entry, key: keyRef.current++ }];
-        return next.length > MAX_NETWORK ? next.slice(next.length - MAX_NETWORK) : next;
-      });
-    });
     const offStatus = window.icarus.onCdpStatus((s) => {
       setStatus(s.status);
-      // Reset captured events on every fresh connect — the old request IDs are gone.
       if (s.status === 'connected') {
         setSupport(s.networkSupport);
-        setEvents([]);
+        // Fresh connect: the inspector in main resets itself; mirror that.
+        setRecords([]);
       } else if (s.status === 'disconnected') {
         setSupport(undefined);
       } else if (s.networkSupport) {
         setSupport(s.networkSupport);
       }
     });
+    // Subscribe to per-record pushes (low volume; per-call, not per-event).
+    const offRecord = window.icarus.onNetworkRecord((record) => {
+      setRecords((prev) => {
+        // Update if we already have this id (in-place update), otherwise append.
+        const i = prev.findIndex((r) => r.requestId === record.requestId);
+        if (i === -1) {
+          const next = [...prev, record];
+          // Bound the in-renderer copy; main also bounds to 500, so this rarely fires.
+          return next.length > 500 ? next.slice(next.length - 500) : next;
+        }
+        const next = prev.slice();
+        next[i] = record;
+        return next;
+      });
+    });
+    // Initial snapshot — late joiners see the live model.
+    void window.icarus.networkList().then((snapshot) => setRecords([...snapshot]));
     return () => {
-      offNet();
       offStatus();
+      offRecord();
     };
   }, []);
 
   useEffect(() => {
-    listRef.current?.scrollTo({ top: listRef.current.scrollHeight });
-  }, [events]);
+    const el = listRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => setContainerHeight(el.clientHeight));
+    ro.observe(el);
+    setContainerHeight(el.clientHeight);
+    return () => ro.disconnect();
+  }, []);
+
+  const visible = filterNetwork(records, textQuery, methodFilter, statusFilter);
+
+  // Auto-scroll to bottom on new records, unless the user has scrolled up.
+  useEffect(() => {
+    const el = listRef.current;
+    if (!el) return;
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    if (distanceFromBottom < VIRT_ITEM_HEIGHT * 3) {
+      el.scrollTop = el.scrollHeight;
+    }
+  }, [visible.length]);
+
+  // Virtualization (same hand-rolled shape as the unified-log panel; E-11).
+  const total = visible.length;
+  const startIdx = Math.max(0, Math.floor(scrollTop / VIRT_ITEM_HEIGHT) - VIRT_OVERSCAN);
+  const endIdx = Math.min(
+    total,
+    Math.ceil((scrollTop + containerHeight) / VIRT_ITEM_HEIGHT) + VIRT_OVERSCAN,
+  );
+  const windowEntries = visible.slice(startIdx, endIdx);
+  const topPad = startIdx * VIRT_ITEM_HEIGHT;
+  const bottomPad = Math.max(0, (total - endIdx) * VIRT_ITEM_HEIGHT);
 
   const supportLabel: string =
     support === undefined
@@ -954,30 +1001,99 @@ function NetworkSection(): ReactElement {
       : support === 'available'
         ? 'available'
         : 'unavailable on this RN version';
-
   const supportColor = support === 'available' ? STATUS_COLOR.connected : STATUS_COLOR.warn;
 
   return (
     <section>
-      <h2 style={{ fontSize: 16 }}>Network requests (CDP, RN ≥ 0.76)</h2>
+      <h2 style={{ fontSize: 16 }}>Network inspector (E-16 · grouped, expandable)</h2>
       <p style={{ color: '#57606a', marginTop: 0, fontSize: 13 }}>
+        One row per HTTP call. Click to expand and see headers, timing, and (opt-in) bodies.{' '}
         Network: <span style={{ color: supportColor, fontWeight: 600 }}>{supportLabel}</span>
       </p>
 
       <div
-        ref={listRef}
         style={{
-          height: 240,
+          display: 'flex',
+          gap: 8,
+          marginBottom: 8,
+          flexWrap: 'wrap',
+          alignItems: 'center',
+        }}
+      >
+        <input
+          type="text"
+          value={textQuery}
+          onChange={(e) => setTextQuery(e.target.value)}
+          placeholder="filter by URL substring…"
+          style={{
+            padding: '4px 8px',
+            fontSize: 12,
+            border: '1px solid #d0d7de',
+            borderRadius: 4,
+            minWidth: 180,
+          }}
+        />
+        {(['GET', 'POST', 'PUT', 'DELETE', 'PATCH'] as const).map((m) => (
+          <FilterChip
+            key={m}
+            label={m}
+            active={methodFilter.has(m)}
+            onToggle={() => toggleInSet(methodFilter, setMethodFilter, m)}
+          />
+        ))}
+        <span style={{ borderLeft: '1px solid #d0d7de', paddingLeft: 8, display: 'flex', gap: 4 }}>
+          {(['2xx', '3xx', '4xx', '5xx', 'failed'] as const).map((s) => (
+            <FilterChip
+              key={s}
+              label={s}
+              active={statusFilter.has(s)}
+              onToggle={() => toggleInSet(statusFilter, setStatusFilter, s)}
+              color={
+                s === '4xx' || s === '5xx' || s === 'failed'
+                  ? '#cf222e'
+                  : s === '3xx'
+                    ? '#0969da'
+                    : '#1a7f37'
+              }
+            />
+          ))}
+        </span>
+        <span style={{ color: '#8c959f', fontSize: 12, marginLeft: 'auto' }}>
+          {visible.length} / {records.length} (rendering {windowEntries.length})
+        </span>
+        <button
+          type="button"
+          onClick={() => void window.icarus.networkClear()}
+          disabled={records.length === 0}
+          title="Wipe the inspector's captured records."
+          style={{
+            padding: '4px 10px',
+            fontSize: 12,
+            cursor: records.length === 0 ? 'default' : 'pointer',
+            border: '1px solid #d0d7de',
+            borderRadius: 4,
+            background: '#fff',
+          }}
+        >
+          Clear
+        </button>
+      </div>
+
+      <div
+        ref={listRef}
+        onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}
+        style={{
+          height: 320,
           overflowY: 'auto',
           border: '1px solid #eaeef2',
           borderRadius: 6,
-          padding: 8,
+          padding: 0,
           fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
           fontSize: 12.5,
           background: '#f6f8fa',
         }}
       >
-        {events.length === 0 ? (
+        {total === 0 ? (
           <p style={{ color: '#8c959f', margin: 8 }}>
             {support === 'unavailable'
               ? 'Network capture requires React Native 0.76 or newer.'
@@ -986,40 +1102,262 @@ function NetworkSection(): ReactElement {
                 : 'Connect first.'}
           </p>
         ) : (
-          events.map((e) => <NetworkRowView key={e.key} event={e} />)
+          <>
+            <div style={{ height: topPad }} />
+            {windowEntries.map((r) => (
+              <NetworkRecordRow key={r.requestId} record={r} />
+            ))}
+            <div style={{ height: bottomPad }} />
+          </>
         )}
       </div>
     </section>
   );
 }
 
-function NetworkRowView({ event }: { event: CdpNetworkEventOut }): ReactElement {
-  if (event.kind === 'request') {
-    return (
-      <div style={{ padding: '2px 0' }}>
-        <span style={{ color: '#0969da' }}>→ {event.method ?? '?'}</span>{' '}
-        <span>{event.url ?? '(no url)'}</span>
-      </div>
-    );
-  }
-  if (event.kind === 'response') {
-    const statusColor = (event.status ?? 0) >= 400 ? STATUS_COLOR.error : STATUS_COLOR.ok;
-    return (
-      <div style={{ padding: '2px 0' }}>
-        <span style={{ color: statusColor }}>← {event.status ?? '?'}</span>{' '}
-        <span>
-          {event.method ?? '?'} {event.url ?? '(no url)'}
-        </span>
-        {event.contentType && <span style={{ color: '#57606a' }}> — {event.contentType}</span>}
-      </div>
-    );
-  }
+function NetworkRecordRow({ record }: { record: NetworkRecord }): ReactElement {
+  // A row is collapsed by default; clicking expands to show headers + opt-in body fetch.
+  const [expanded, setExpanded] = useState(false);
+  const [bodyState, setBodyState] = useState<
+    | { kind: 'idle' }
+    | { kind: 'loading'; for: 'request' | 'response' }
+    | { kind: 'done'; result: NetworkBodyResult; for: 'request' | 'response' }
+    | { kind: 'error'; message: string }
+  >({ kind: 'idle' });
+
+  const statusPill = networkStatusPill(record);
+  const dur = durationOf(record);
+  const durLabel = dur === null ? '—' : `${dur}ms`;
+
+  const onFetchBody = async (kind: 'request' | 'response'): Promise<void> => {
+    setBodyState({ kind: 'loading', for: kind });
+    try {
+      const result = await window.icarus.networkFetchBody({ requestId: record.requestId, kind });
+      setBodyState({ kind: 'done', result, for: kind });
+    } catch (e) {
+      setBodyState({ kind: 'error', message: e instanceof Error ? e.message : String(e) });
+    }
+  };
+
   return (
-    <div style={{ padding: '2px 0' }}>
-      <span style={{ color: STATUS_COLOR.error }}>✗ failed</span>{' '}
-      <span style={{ color: '#57606a' }}>{event.errorText ?? 'unknown error'}</span>
+    <div style={{ borderBottom: '1px solid #eaeef2' }}>
+      <button
+        type="button"
+        onClick={() => setExpanded((e) => !e)}
+        style={{
+          width: '100%',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          padding: '6px 8px',
+          background: 'transparent',
+          border: 'none',
+          cursor: 'pointer',
+          textAlign: 'left',
+          font: 'inherit',
+          color: 'inherit',
+        }}
+      >
+        <span style={{ color: '#8c959f', width: 12 }}>{expanded ? '▾' : '▸'}</span>
+        <span
+          style={{
+            display: 'inline-block',
+            padding: '1px 6px',
+            background: statusPill.bg,
+            color: '#fff',
+            borderRadius: 3,
+            fontWeight: 600,
+            fontSize: 11,
+            minWidth: 36,
+            textAlign: 'center',
+          }}
+        >
+          {statusPill.label}
+        </span>
+        <span style={{ color: '#0969da', fontWeight: 600, minWidth: 48 }}>{record.method}</span>
+        <span
+          style={{ flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+        >
+          {record.url}
+        </span>
+        <span style={{ color: '#8c959f', fontSize: 11, minWidth: 60, textAlign: 'right' }}>
+          {durLabel}
+        </span>
+      </button>
+      {expanded && (
+        <div style={{ padding: '0 8px 10px 28px', fontSize: 12 }}>
+          {record.failure && (
+            <p style={{ color: STATUS_COLOR.error, margin: '4px 0' }}>✗ {record.failure}</p>
+          )}
+          {record.contentType && (
+            <p style={{ color: '#57606a', margin: '2px 0' }}>
+              <strong>content-type:</strong> {record.contentType}
+            </p>
+          )}
+          {record.encodedDataLength !== undefined && (
+            <p style={{ color: '#57606a', margin: '2px 0' }}>
+              <strong>size:</strong> {formatBytes(record.encodedDataLength)}
+            </p>
+          )}
+          <HeaderTable title="Request headers" headers={record.requestHeaders} />
+          <HeaderTable title="Response headers" headers={record.responseHeaders} />
+          <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+            <button
+              type="button"
+              onClick={() => void onFetchBody('request')}
+              disabled={bodyState.kind === 'loading'}
+              style={smallBtn}
+            >
+              {bodyState.kind === 'loading' && bodyState.for === 'request'
+                ? 'Loading…'
+                : 'Fetch request body'}
+            </button>
+            <button
+              type="button"
+              onClick={() => void onFetchBody('response')}
+              disabled={bodyState.kind === 'loading'}
+              style={smallBtn}
+            >
+              {bodyState.kind === 'loading' && bodyState.for === 'response'
+                ? 'Loading…'
+                : 'Fetch response body'}
+            </button>
+          </div>
+          {bodyState.kind === 'done' && <BodyView result={bodyState.result} />}
+          {bodyState.kind === 'error' && (
+            <p style={{ color: STATUS_COLOR.error, marginTop: 6 }}>
+              Body fetch failed: {bodyState.message}
+            </p>
+          )}
+        </div>
+      )}
     </div>
   );
 }
+
+function HeaderTable({
+  title,
+  headers,
+}: {
+  title: string;
+  headers?: Readonly<Record<string, string>> | undefined;
+}): ReactElement | null {
+  if (headers === undefined) return null;
+  const entries = Object.entries(headers);
+  if (entries.length === 0) return null;
+  return (
+    <div style={{ marginTop: 6 }}>
+      <p style={{ margin: '2px 0', color: '#57606a', fontWeight: 600 }}>{title}</p>
+      <table style={{ borderCollapse: 'collapse', fontSize: 11.5, width: '100%' }}>
+        <tbody>
+          {entries.map(([k, v]) => (
+            <tr key={k} style={{ borderBottom: '1px solid #f0f3f6' }}>
+              <td style={{ color: '#8c959f', padding: '1px 8px 1px 0', whiteSpace: 'nowrap' }}>
+                {k}
+              </td>
+              <td style={{ padding: '1px 0', wordBreak: 'break-all' }}>{v}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function BodyView({ result }: { result: NetworkBodyResult }): ReactElement {
+  if (result.body === null) {
+    return (
+      <p style={{ marginTop: 6, color: '#8c959f', fontSize: 12 }}>
+        {result.reason === 'too-large'
+          ? 'Body too large to display (> 256 KB).'
+          : result.reason === 'binary'
+            ? 'Binary body — not displayed in v1.'
+            : result.reason === 'timeout'
+              ? 'Body fetch timed out.'
+              : 'Body unavailable.'}
+      </p>
+    );
+  }
+  return (
+    <pre
+      style={{
+        marginTop: 6,
+        maxHeight: 220,
+        overflow: 'auto',
+        background: '#fff',
+        border: '1px solid #eaeef2',
+        borderRadius: 4,
+        padding: 8,
+        fontSize: 11.5,
+        whiteSpace: 'pre-wrap',
+        wordBreak: 'break-word',
+      }}
+    >
+      {result.body}
+    </pre>
+  );
+}
+
+function networkStatusPill(record: NetworkRecord): { label: string; bg: string } {
+  if (record.failure) return { label: 'FAIL', bg: '#cf222e' };
+  const s = record.status;
+  if (s === undefined) return { label: '…', bg: '#8c959f' };
+  if (s >= 200 && s < 300) return { label: String(s), bg: '#1a7f37' };
+  if (s >= 300 && s < 400) return { label: String(s), bg: '#0969da' };
+  if (s >= 400 && s < 500) return { label: String(s), bg: '#9a6700' };
+  return { label: String(s), bg: '#cf222e' };
+}
+
+function durationOf(record: NetworkRecord): number | null {
+  if (record.endTimestampMs === undefined) return null;
+  return Math.max(0, record.endTimestampMs - record.requestTimestampMs);
+}
+
+function formatBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / (1024 * 1024)).toFixed(2)} MB`;
+}
+
+function filterNetwork(
+  records: readonly NetworkRecord[],
+  text: string,
+  methods: Set<string>,
+  statuses: Set<string>,
+): NetworkRecord[] {
+  const q = text.toLowerCase();
+  return records.filter((r) => {
+    if (!methods.has(r.method)) return false;
+    if (!statuses.has(statusBucket(r))) return false;
+    if (q && !r.url.toLowerCase().includes(q)) return false;
+    return true;
+  });
+}
+
+function statusBucket(r: NetworkRecord): string {
+  if (r.failure) return 'failed';
+  const s = r.status;
+  if (s === undefined) return 'failed'; // not-yet-ended; treat as failed for the filter
+  if (s >= 200 && s < 300) return '2xx';
+  if (s >= 300 && s < 400) return '3xx';
+  if (s >= 400 && s < 500) return '4xx';
+  return '5xx';
+}
+
+function toggleInSet<T>(current: Set<T>, set: (s: Set<T>) => void, value: T): void {
+  const next = new Set(current);
+  if (next.has(value)) next.delete(value);
+  else next.add(value);
+  set(next);
+}
+
+const smallBtn = {
+  padding: '2px 8px',
+  fontSize: 11,
+  cursor: 'pointer',
+  border: '1px solid #d0d7de',
+  borderRadius: 3,
+  background: '#fff',
+} as const;
 
 const btnStyle = { padding: '8px 16px', fontSize: 14, cursor: 'pointer' } as const;
