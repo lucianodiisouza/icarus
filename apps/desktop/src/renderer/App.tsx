@@ -78,6 +78,8 @@ export function App(): ReactElement {
       <LiveLogsSection />
       <hr style={{ margin: '28px 0', border: 0, borderTop: '1px solid #eaeef2' }} />
       <NetworkSection />
+      <hr style={{ margin: '28px 0', border: 0, borderTop: '1px solid #eaeef2' }} />
+      <ComponentTreeSection />
     </main>
   );
 }
@@ -1359,5 +1361,373 @@ const smallBtn = {
   borderRadius: 3,
   background: '#fff',
 } as const;
+
+/**
+ * E-17 component tree inspector. Hierarchical view of the running app's React
+ * components, expandable to see props, with name search. Pull-only on click
+ * (or `Cmd-R` while focused); never auto-refreshes.
+ */
+function ComponentTreeSection(): ReactElement {
+  const [snapshot, setSnapshot] = useState<
+    | { kind: 'idle' }
+    | { kind: 'loading' }
+    | { kind: 'ready'; roots: readonly import('../shared/ipc/contracts.js').ComponentNode[] }
+    | { kind: 'error'; message: string }
+  >({ kind: 'idle' });
+  const [nameQuery, setNameQuery] = useState<string>('');
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const listRef = useRef<HTMLDivElement>(null);
+  const [scrollTop, setScrollTop] = useState(0);
+  const [containerHeight, setContainerHeight] = useState(360);
+
+  // Cmd-R / Ctrl-R refreshes the tree while the panel is focused (devtools muscle memory).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'r') {
+        e.preventDefault();
+        void refresh();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [refresh]);
+
+  const refresh = useCallback(async () => {
+    setSnapshot({ kind: 'loading' });
+    try {
+      const result = await window.icarus.componentTreeSnapshot();
+      if (result.ok) {
+        setSnapshot({ kind: 'ready', roots: result.roots });
+        // Auto-expand the first level so the tree is navigable on first load.
+        const initialExpanded = new Set<string>();
+        for (const root of result.roots) {
+          initialExpanded.add(root.id);
+        }
+        setExpanded(initialExpanded);
+      } else {
+        setSnapshot({ kind: 'error', message: formatTreeError(result) });
+      }
+    } catch (e) {
+      setSnapshot({ kind: 'error', message: e instanceof Error ? e.message : String(e) });
+    }
+  }, []);
+
+  useEffect(() => {
+    const el = listRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => setContainerHeight(el.clientHeight));
+    ro.observe(el);
+    setContainerHeight(el.clientHeight);
+    return () => ro.disconnect();
+  }, []);
+
+  const roots = snapshot.kind === 'ready' ? snapshot.roots : [];
+  const query = nameQuery.toLowerCase();
+  // Flatten the (visible) tree into rows for the virtualizer. When a name
+  // query is active, we keep only matching nodes + their ancestors (so the
+  // tree stays navigable).
+  const rows = flattenForRender(roots, expanded, query);
+
+  // Virtualization (E-11 hand-rolled pattern).
+  const total = rows.length;
+  const startIdx = Math.max(0, Math.floor(scrollTop / TREE_ROW_HEIGHT) - VIRT_OVERSCAN);
+  const endIdx = Math.min(
+    total,
+    Math.ceil((scrollTop + containerHeight) / TREE_ROW_HEIGHT) + VIRT_OVERSCAN,
+  );
+  const visibleRows = rows.slice(startIdx, endIdx);
+  const topPad = startIdx * TREE_ROW_HEIGHT;
+  const bottomPad = Math.max(0, (total - endIdx) * TREE_ROW_HEIGHT);
+
+  return (
+    <section>
+      <h2 style={{ fontSize: 16 }}>React component tree (E-17)</h2>
+      <p style={{ color: '#57606a', marginTop: 0, fontSize: 13 }}>
+        Click <strong>Refresh</strong> (or <kbd>⌘R</kbd>) to capture the rendered tree. The tree is
+        read-only — Icarus never mutates the app to take it.
+      </p>
+      <div
+        style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8, flexWrap: 'wrap' }}
+      >
+        <button
+          type="button"
+          onClick={() => void refresh()}
+          disabled={snapshot.kind === 'loading'}
+          style={btnStyle}
+        >
+          {snapshot.kind === 'loading' ? 'Refreshing…' : 'Refresh tree'}
+        </button>
+        <input
+          type="text"
+          value={nameQuery}
+          onChange={(e) => setNameQuery(e.target.value)}
+          placeholder="filter by component name…"
+          style={{
+            padding: '4px 8px',
+            fontSize: 12,
+            border: '1px solid #d0d7de',
+            borderRadius: 4,
+            minWidth: 180,
+          }}
+        />
+        <span style={{ color: '#8c959f', fontSize: 12, marginLeft: 'auto' }}>
+          {snapshot.kind === 'ready' ? `${rows.length} visible (${countNodes(roots)} total)` : '—'}
+        </span>
+      </div>
+
+      <div
+        ref={listRef}
+        onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}
+        style={{
+          height: 360,
+          overflowY: 'auto',
+          border: '1px solid #eaeef2',
+          borderRadius: 6,
+          padding: 0,
+          fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+          fontSize: 12.5,
+          background: '#f6f8fa',
+        }}
+      >
+        {snapshot.kind === 'idle' && (
+          <p style={{ color: '#8c959f', margin: 8 }}>
+            No tree captured yet. Click <strong>Refresh tree</strong> to take one.
+          </p>
+        )}
+        {snapshot.kind === 'loading' && (
+          <p style={{ color: '#8c959f', margin: 8 }}>Capturing tree…</p>
+        )}
+        {snapshot.kind === 'error' && (
+          <p style={{ color: STATUS_COLOR.error, margin: 8, fontSize: 12 }}>{snapshot.message}</p>
+        )}
+        {snapshot.kind === 'ready' && rows.length === 0 && (
+          <p style={{ color: '#8c959f', margin: 8, fontSize: 12 }}>
+            {roots.length === 0
+              ? 'Tree is empty (no rendered components).'
+              : 'No components match the filter.'}
+          </p>
+        )}
+        {snapshot.kind === 'ready' && rows.length > 0 && (
+          <>
+            <div style={{ height: topPad }} />
+            {visibleRows.map((row) => (
+              <TreeRow
+                key={row.node.id}
+                node={row.node}
+                isExpanded={expanded.has(row.node.id)}
+                onToggle={() => toggleExpanded(expanded, setExpanded, row.node.id)}
+                hasChildren={row.node.children.length > 0}
+                isMatch={query.length > 0 && row.node.name.toLowerCase().includes(query)}
+              />
+            ))}
+            <div style={{ height: bottomPad }} />
+          </>
+        )}
+      </div>
+    </section>
+  );
+}
+
+const TREE_ROW_HEIGHT = 24;
+
+interface FlatTreeRow {
+  readonly node: import('../shared/ipc/contracts.js').ComponentNode;
+}
+
+function flattenForRender(
+  roots: readonly import('../shared/ipc/contracts.js').ComponentNode[],
+  expanded: Set<string>,
+  query: string,
+): readonly FlatTreeRow[] {
+  const out: FlatTreeRow[] = [];
+  if (query.length > 0) {
+    // Query mode: keep ancestors + matching nodes (and their children, so the
+    // user can see context). The simplest correct algorithm: walk the tree,
+    // build a "filtered" tree that drops non-matching leaves but keeps internal
+    // nodes that have a match in their subtree.
+    collectMatches(roots, query, expanded, out);
+    return out;
+  }
+  // No query: standard depth-first flatten honoring `expanded`.
+  const visit = (n: import('../shared/ipc/contracts.js').ComponentNode): void => {
+    out.push({ node: n });
+    if (expanded.has(n.id)) {
+      for (const c of n.children) visit(c);
+    }
+  };
+  for (const r of roots) visit(r);
+  return out;
+}
+
+function collectMatches(
+  nodes: readonly import('../shared/ipc/contracts.js').ComponentNode[],
+  query: string,
+  expanded: Set<string>,
+  out: FlatTreeRow[],
+): void {
+  for (const n of nodes) {
+    const matches = n.name.toLowerCase().includes(query);
+    const subtreeHasMatch = matches || n.children.some((c) => nameInTree(c, query));
+    if (!subtreeHasMatch) continue;
+    out.push({ node: n });
+    if (matches) {
+      // Force-expand on a direct match so the user sees its context.
+      for (const c of n.children) collectMatches([c], query, expanded, out);
+    } else {
+      // No direct match but a descendant has one — recurse to surface the path.
+      if (expanded.has(n.id) || n.depth === 0) {
+        for (const c of n.children) collectMatches([c], query, expanded, out);
+      }
+    }
+  }
+}
+
+function nameInTree(
+  node: import('../shared/ipc/contracts.js').ComponentNode,
+  query: string,
+): boolean {
+  if (node.name.toLowerCase().includes(query)) return true;
+  return node.children.some((c) => nameInTree(c, query));
+}
+
+function countNodes(nodes: readonly import('../shared/ipc/contracts.js').ComponentNode[]): number {
+  let total = 0;
+  for (const n of nodes) {
+    total += 1 + countNodes(n.children);
+  }
+  return total;
+}
+
+function toggleExpanded(current: Set<string>, set: (s: Set<string>) => void, id: string): void {
+  const next = new Set(current);
+  if (next.has(id)) next.delete(id);
+  else next.add(id);
+  set(next);
+}
+
+function formatTreeError(result: { kind: string; name?: string; message?: string }): string {
+  switch (result.kind) {
+    case 'not_connected':
+      return 'Not connected to a React Native app — connect CDP first.';
+    case 'no_root_element':
+      return 'No #root element found in the running app. (Is this an RN dev build?)';
+    case 'no_fiber_root':
+      return 'No React fiber root on the #root element. The app may not be a React app.';
+    case 'no_current_fiber':
+      return 'React fiber root has no current fiber. The app may have just navigated.';
+    case 'timeout':
+      return 'Tree fetch timed out. The app may be busy — try again.';
+    case 'remote_exception':
+      return `JS error: ${result.name ?? 'Error'}: ${result.message ?? 'unknown'}`;
+    case 'cdp_error':
+      return `CDP error: ${result.message ?? 'unknown'}`;
+    default:
+      return `Unknown error: ${result.kind}`;
+  }
+}
+
+function TreeRow({
+  node,
+  isExpanded,
+  onToggle,
+  hasChildren,
+  isMatch,
+}: {
+  node: import('../shared/ipc/contracts.js').ComponentNode;
+  isExpanded: boolean;
+  onToggle: () => void;
+  hasChildren: boolean;
+  isMatch: boolean;
+}): ReactElement {
+  const [propsOpen, setPropsOpen] = useState(false);
+  const indent = node.depth * 14;
+  const hostBadge = node.isHostRoot ? (
+    <span
+      style={{
+        marginLeft: 6,
+        padding: '0 4px',
+        background: '#ddf4ff',
+        color: '#0969da',
+        borderRadius: 3,
+        fontSize: 10,
+        fontWeight: 600,
+      }}
+    >
+      Host
+    </span>
+  ) : null;
+  const propCount = Object.keys(node.props).length;
+  return (
+    <div
+      style={{
+        borderBottom: '1px solid #f0f3f6',
+        background: isMatch ? '#fff8c5' : 'transparent',
+      }}
+    >
+      <button
+        type="button"
+        onClick={onToggle}
+        style={{
+          width: '100%',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
+          padding: '4px 8px',
+          paddingLeft: 8 + indent,
+          background: 'transparent',
+          border: 'none',
+          cursor: 'pointer',
+          textAlign: 'left',
+          font: 'inherit',
+          color: 'inherit',
+          height: TREE_ROW_HEIGHT,
+        }}
+      >
+        <span style={{ color: '#8c959f', width: 10 }}>
+          {hasChildren ? (isExpanded ? '▾' : '▸') : '·'}
+        </span>
+        <span style={{ color: '#24292f', fontWeight: node.isHostRoot ? 600 : 400 }}>
+          {node.name}
+        </span>
+        {hostBadge}
+        {propCount > 0 && (
+          <span style={{ color: '#8c959f', fontSize: 11 }}>({propCount} props)</span>
+        )}
+      </button>
+      {isExpanded && propCount > 0 && (
+        <div style={{ padding: '0 8px 6px 8px', paddingLeft: 8 + indent + 16 }}>
+          <button
+            type="button"
+            onClick={() => setPropsOpen((o) => !o)}
+            style={{
+              ...smallBtn,
+              marginBottom: propsOpen ? 4 : 0,
+            }}
+          >
+            {propsOpen ? 'Hide props' : 'Show props'}
+          </button>
+          {propsOpen && (
+            <pre
+              style={{
+                margin: 0,
+                padding: 6,
+                background: '#fff',
+                border: '1px solid #eaeef2',
+                borderRadius: 4,
+                fontSize: 11,
+                whiteSpace: 'pre-wrap',
+                wordBreak: 'break-word',
+              }}
+            >
+              {Object.entries(node.props)
+                .map(([k, v]) => `${k}: ${v}`)
+                .join('\n')}
+            </pre>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 const btnStyle = { padding: '8px 16px', fontSize: 14, cursor: 'pointer' } as const;

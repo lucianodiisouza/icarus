@@ -22,6 +22,7 @@ import type {
   NetworkFetchBodyInput,
   NetworkListOutput,
   NetworkRecord,
+  ComponentTreeSnapshot,
 } from '../shared/ipc/contracts.js';
 import type { IcarusApi, Unsubscribe } from '../shared/ipc/api.js';
 
@@ -85,6 +86,10 @@ const api: IcarusApi = {
     ipcRenderer.invoke(CHANNELS.NETWORK_FETCH_BODY, input) as Promise<NetworkBodyResult>,
   onNetworkRecord: (handler: (record: NetworkRecord) => void) =>
     subscribe(EVENTS.NETWORK_RECORD, handler),
+  // M3 component tree inspector (E-17): take a snapshot of the running app's React tree.
+  // Pull-only on click (or `Cmd-R`); the renderer never sees a stream of trees.
+  componentTreeSnapshot: () =>
+    ipcRenderer.invoke(CHANNELS.COMPONENT_TREE_SNAPSHOT) as Promise<ComponentTreeSnapshot>,
 };
 
 contextBridge.exposeInMainWorld('icarus', api);

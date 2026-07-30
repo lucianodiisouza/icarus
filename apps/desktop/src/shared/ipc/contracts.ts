@@ -72,6 +72,13 @@ export const CHANNELS = {
    * only ever fired on a renderer's explicit click — never auto.
    */
   NETWORK_FETCH_BODY: 'command:network.fetchBody',
+  /**
+   * Command: take a snapshot of the running app's React component tree (E-17, M3
+   * component tree inspector). Pull-only — the renderer calls this on click
+   * (or `Cmd-R`), not on every CDP frame. Returns the correlated `ComponentNode[]`
+   * or a typed "why this didn't work" error.
+   */
+  COMPONENT_TREE_SNAPSHOT: 'command:componentTree.snapshot',
 } as const;
 
 export type ChannelName = (typeof CHANNELS)[keyof typeof CHANNELS];
@@ -325,3 +332,23 @@ export const networkFetchBodyInputSchema = z.object({
 });
 export type NetworkFetchBodyInput = z.infer<typeof networkFetchBodyInputSchema>;
 export type NetworkFetchBodyOutput = NetworkBodyResult;
+
+// --- command:componentTree.snapshot (E-17, M3 component tree inspector) ---
+import type { ComponentNode } from '@icarus/core';
+export type { ComponentNode } from '@icarus/core';
+export const componentTreeSnapshotInputSchema = z.void();
+/** A typed snapshot result — `ok: true` with a tree, or `ok: false` with a reason. */
+export type ComponentTreeSnapshot =
+  | { readonly ok: true; readonly roots: readonly ComponentNode[] }
+  | { readonly ok: false; readonly kind: 'not_connected' }
+  | { readonly ok: false; readonly kind: 'no_root_element' }
+  | { readonly ok: false; readonly kind: 'no_fiber_root' }
+  | { readonly ok: false; readonly kind: 'no_current_fiber' }
+  | {
+      readonly ok: false;
+      readonly kind: 'remote_exception';
+      readonly name: string;
+      readonly message: string;
+    }
+  | { readonly ok: false; readonly kind: 'timeout' }
+  | { readonly ok: false; readonly kind: 'cdp_error'; readonly message: string };

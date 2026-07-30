@@ -45,6 +45,10 @@ import { createCdpController, registerCdpChannels } from './cdp-ipc.js';
 import { LogExporter } from './log-exporter.js';
 import { createDefaultLogExporterDeps, registerLogExportChannel } from './log-exporter-ipc.js';
 import { createNetworkController, registerNetworkChannels } from './network-controller.js';
+import {
+  createComponentTreeController,
+  registerComponentTreeChannels,
+} from './component-tree-controller.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -187,6 +191,9 @@ registerHandlers(router);
 const feedNetworkInspector = (event: import('@icarus/core').CdpNetworkEvent): void => {
   networkInspector.feed(event);
 };
+// M3 component tree inspector (E-17): owns the `Runtime.evaluate` round-trip + the
+// fiber walker. Shares the same `onCdpSendChange` hook as the network inspector.
+const componentTree = createComponentTreeController();
 const cdp = createCdpController({
   unified,
   captureNetworkEvent: (event) => {
@@ -197,13 +204,11 @@ const cdp = createCdpController({
   // needs the live CDP `send` — forward it on every status change. The session's `send`
   // has the same shape as `CdpSendLike.send`; the cast is the single point of adaptation.
   onCdpSendChange: (send) => {
-    networkInspector.setCdpSend(
-      send
-        ? {
-            send: send as unknown as import('@icarus/core').CdpSendLike['send'],
-          }
-        : null,
-    );
+    const adapted: import('@icarus/core').CdpSendLike | null = send
+      ? { send: send as unknown as import('@icarus/core').CdpSendLike['send'] }
+      : null;
+    networkInspector.setCdpSend(adapted);
+    componentTree.setCdpSend(adapted);
   },
 });
 registerCdpChannels(router, cdp, () => autoAttach.markUserDisconnected());
@@ -213,6 +218,12 @@ registerNetworkChannels({
   router,
   controller: networkInspector,
   window: () => BrowserWindow.getAllWindows()[0] ?? null,
+});
+
+// Register the component tree inspector's IPC channel.
+registerComponentTreeChannels({
+  router,
+  controller: componentTree,
 });
 
 router.register(

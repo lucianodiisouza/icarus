@@ -15,6 +15,7 @@ import type {
   NetworkFetchBodyInput,
   NetworkListOutput,
   NetworkRecord,
+  ComponentTreeSnapshot,
 } from './contracts.js';
 import type {
   AutoAttachSetInput,
@@ -155,6 +156,17 @@ export interface IcarusApi {
    * batcher is needed.
    */
   onNetworkRecord(handler: (record: NetworkRecord) => void): Unsubscribe;
+
+  // --- M3 component tree inspector (E-17) ---
+  /**
+   * Take a snapshot of the running app's React component tree. Pull-only — the
+   * renderer calls this on click (or `Cmd-R` while focused on the panel); it
+   * never sees a stream of trees. The result is a typed union: `ok: true` with
+   * `roots: ComponentNode[]`, or `ok: false` with a reason (not_connected, no
+   * fiber root, etc.) so the UI can show the right "why this didn't work"
+   * message rather than crash.
+   */
+  componentTreeSnapshot(): Promise<ComponentTreeSnapshot>;
 }
 
 declare global {

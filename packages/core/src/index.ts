@@ -72,6 +72,11 @@ export type {
   NetworkBodyOptions,
   CdpSendLike,
 } from './protocol/cdp/network-body.js';
+// M3 component tree inspector (E-17): Runtime.evaluate wrapper + fiber tree walker.
+export { evaluateOnTarget } from './protocol/cdp/eval.js';
+export type { EvaluateOptions, EvaluateResult } from './protocol/cdp/eval.js';
+export { walkReactTree, safeStringify, FIBER_ROOT_EXPRESSION } from './react-tree/walk.js';
+export type { ComponentNode, WalkOptions, FiberLike } from './react-tree/walk.js';
 export type {
   CdpTarget,
   ProxyDiscovery,
