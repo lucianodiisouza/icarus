@@ -6,6 +6,7 @@ import type {
   CdpNetworkEventOut,
   CdpStatusEvent,
   DoctorCheckOutput,
+  DevicesLaunchActivityOutput,
   DevicesLaunchOutput,
   MetroStartInput,
   MetroStartOutput,
@@ -27,7 +28,9 @@ import type {
   AutoAttachSetInput,
   AutoAttachStatus,
   DevicesBootInput,
+  DevicesInstallApkInput,
   DevicesInstallInput,
+  DevicesLaunchActivityInput,
   DevicesLaunchInput,
   DevicesListOutput,
   UnifiedLogSnapshot,
@@ -68,14 +71,18 @@ export interface IcarusApi {
   /** Stop the running Metro dev server. */
   metroStop(): Promise<void>;
 
-  /** List the available iOS simulators (E-09). */
+  /** List the available iOS simulators + Android devices/emulators (E-09 / E-22). */
   devicesList(): Promise<DevicesListOutput>;
-  /** Boot a simulator by UDID. */
+  /** Boot an iOS simulator by UDID. */
   devicesBoot(input: DevicesBootInput): Promise<void>;
-  /** Install an .app bundle on a simulator. */
+  /** Install an .app bundle on an iOS simulator. */
   devicesInstall(input: DevicesInstallInput): Promise<void>;
-  /** Launch an installed app on a simulator. */
+  /** Launch an installed app on an iOS simulator. */
   devicesLaunch(input: DevicesLaunchInput): Promise<DevicesLaunchOutput>;
+  /** Install an .apk on an Android device/emulator (E-22 / TD-13). */
+  devicesInstallApk(input: DevicesInstallApkInput): Promise<void>;
+  /** Launch an app's main activity on Android (E-22 / TD-13). */
+  devicesLaunchActivity(input: DevicesLaunchActivityInput): Promise<DevicesLaunchActivityOutput>;
 
   /**
    * Generic event subscription for any registered FeatureModule (TD-15). The

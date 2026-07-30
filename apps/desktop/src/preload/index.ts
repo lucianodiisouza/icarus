@@ -58,6 +58,8 @@ const api: IcarusApi = {
   devicesBoot: (input) => ipcRenderer.invoke(CHANNELS.DEVICES_BOOT, input),
   devicesInstall: (input) => ipcRenderer.invoke(CHANNELS.DEVICES_INSTALL, input),
   devicesLaunch: (input) => ipcRenderer.invoke(CHANNELS.DEVICES_LAUNCH, input),
+  devicesInstallApk: (input) => ipcRenderer.invoke(CHANNELS.DEVICES_INSTALL_APK, input),
+  devicesLaunchActivity: (input) => ipcRenderer.invoke(CHANNELS.DEVICES_LAUNCH_ACTIVITY, input),
   onModuleEvent: <T = unknown>(
     moduleId: string,
     eventName: string,

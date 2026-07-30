@@ -9,7 +9,7 @@ import type {
   MetroStatus,
   MetroStatusEvent,
   ProjectKind,
-  SimDevice,
+  Device,
   UnifiedLogEntryOut,
   NetworkRecord,
   NetworkBodyResult,
@@ -228,11 +228,13 @@ function LiveLogsSection(): ReactElement {
 }
 
 function DevicesSection(): ReactElement {
-  const [devices, setDevices] = useState<SimDevice[]>([]);
-  const [busy, setBusy] = useState<string | null>(null); // udid in flight, or null
+  const [devices, setDevices] = useState<Device[]>([]);
+  const [busy, setBusy] = useState<string | null>(null); // udid/serial in flight, or null
   const [error, setError] = useState<string | null>(null);
   const [appPath, setAppPath] = useState<string>('');
   const [bundleId, setBundleId] = useState<string>('');
+  const [apkPath, setApkPath] = useState<string>('');
+  const [pkgActivity, setPkgActivity] = useState<string>('');
 
   const refresh = useCallback(async () => {
     setBusy('__list');
@@ -277,11 +279,43 @@ function DevicesSection(): ReactElement {
     [appPath, bundleId],
   );
 
+  // Android: "pkg/activity" goes in a single field (e.g. "com.example/.MainActivity").
+  const onInstallApkAndLaunch = useCallback(
+    async (serial: string) => {
+      if (!apkPath.trim() || !pkgActivity.trim()) return;
+      const at = pkgActivity.trim().indexOf('/');
+      if (at < 0) {
+        setError('Android: enter "pkg/activity", e.g. "com.example/.MainActivity"');
+        return;
+      }
+      const pkg = pkgActivity.trim().slice(0, at);
+      const activity = pkgActivity.trim().slice(at + 1);
+      setBusy(serial);
+      setError(null);
+      try {
+        await window.icarus.devicesInstallApk({ serial, apkPath: apkPath.trim() });
+        const { message } = await window.icarus.devicesLaunchActivity({
+          serial,
+          pkg,
+          activity,
+        });
+        setError(message || 'Launched');
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+      } finally {
+        setBusy(null);
+      }
+    },
+    [apkPath, pkgActivity],
+  );
+
   return (
     <section>
-      <h2 style={{ fontSize: 16 }}>iOS simulators (E-09, iOS only for v1)</h2>
+      <h2 style={{ fontSize: 16 }}>Devices (iOS sim + Android, E-09 / E-22)</h2>
       <p style={{ color: '#57606a', marginTop: 0, fontSize: 13 }}>
-        Pick a booted simulator and (optionally) install + launch your app on it.
+        Pick a booted iOS sim or a connected Android device/emulator and (optionally) install +
+        launch your app on it. iOS uses <code>.app</code> + bundle id; Android uses{' '}
+        <code>.apk</code> +<code> pkg/activity</code>.
       </p>
       <div
         style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8, flexWrap: 'wrap' }}
@@ -290,14 +324,28 @@ function DevicesSection(): ReactElement {
           type="text"
           value={appPath}
           onChange={(e) => setAppPath(e.target.value)}
-          placeholder="/path/to/YourApp.app"
+          placeholder="iOS: /path/to/YourApp.app"
           style={inputStyle}
         />
         <input
           type="text"
           value={bundleId}
           onChange={(e) => setBundleId(e.target.value)}
-          placeholder="com.example.bundleId"
+          placeholder="iOS: com.example.bundleId"
+          style={inputStyle}
+        />
+        <input
+          type="text"
+          value={apkPath}
+          onChange={(e) => setApkPath(e.target.value)}
+          placeholder="Android: /path/to/YourApp.apk"
+          style={inputStyle}
+        />
+        <input
+          type="text"
+          value={pkgActivity}
+          onChange={(e) => setPkgActivity(e.target.value)}
+          placeholder="Android: com.example/.MainActivity"
           style={inputStyle}
         />
         <button
@@ -313,7 +361,9 @@ function DevicesSection(): ReactElement {
 
       {devices.length === 0 ? (
         <p style={{ color: '#8c959f', fontSize: 13 }}>
-          No simulators. Click <strong>Refresh</strong> to scan.
+          No simulators or devices. Click <strong>Refresh</strong> to scan. (Both iOS
+          <code>xcrun simctl</code> and Android <code>adb</code> failures are swallowed — install
+          the missing toolchain to see those rows.)
         </p>
       ) : (
         <table
@@ -326,48 +376,67 @@ function DevicesSection(): ReactElement {
         >
           <thead>
             <tr style={{ borderBottom: '1px solid #eaeef2', textAlign: 'left' }}>
+              <th style={{ padding: 6 }}>Family</th>
               <th style={{ padding: 6 }}>Name</th>
               <th style={{ padding: 6 }}>State</th>
-              <th style={{ padding: 6 }}>UDID</th>
+              <th style={{ padding: 6 }}>ID</th>
               <th style={{ padding: 6 }}>Actions</th>
             </tr>
           </thead>
           <tbody>
-            {devices.map((d) => (
-              <tr key={d.udid} style={{ borderBottom: '1px solid #f0f3f6' }}>
-                <td style={{ padding: 6 }}>{d.name}</td>
-                <td
-                  style={{
-                    padding: 6,
-                    color: d.state === 'Booted' ? STATUS_COLOR.connected : '#57606a',
-                  }}
-                >
-                  {d.state}
-                </td>
-                <td style={{ padding: 6, color: '#8c959f', fontSize: 11 }}>{d.udid}</td>
-                <td style={{ padding: 6 }}>
-                  {d.state === 'Booted' ? (
-                    <button
-                      type="button"
-                      onClick={() => void onInstallAndLaunch(d.udid)}
-                      disabled={busy !== null || !appPath.trim() || !bundleId.trim()}
-                      style={btnStyle}
-                    >
-                      {busy === d.udid ? 'Working…' : 'Install + Launch'}
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => void onBoot(d.udid)}
-                      disabled={busy !== null}
-                      style={btnStyle}
-                    >
-                      {busy === d.udid ? 'Booting…' : 'Boot'}
-                    </button>
-                  )}
-                </td>
-              </tr>
-            ))}
+            {devices.map((d) => {
+              const isAndroid = d.family === 'android';
+              const id = isAndroid ? d.serial : d.udid;
+              const isReady = isAndroid ? d.state === 'device' : d.state === 'Booted';
+              const displayName = isAndroid ? (d.model ?? d.serial) : d.name;
+              return (
+                <tr key={`${d.family}:${id}`} style={{ borderBottom: '1px solid #f0f3f6' }}>
+                  <td style={{ padding: 6, color: '#8c959f' }}>{d.family}</td>
+                  <td style={{ padding: 6 }}>{displayName}</td>
+                  <td
+                    style={{
+                      padding: 6,
+                      color: isReady ? STATUS_COLOR.connected : '#57606a',
+                    }}
+                  >
+                    {d.state}
+                  </td>
+                  <td style={{ padding: 6, color: '#8c959f', fontSize: 11 }}>{id}</td>
+                  <td style={{ padding: 6 }}>
+                    {isAndroid ? (
+                      <button
+                        type="button"
+                        onClick={() => void onInstallApkAndLaunch(id)}
+                        disabled={
+                          busy !== null || !isReady || !apkPath.trim() || !pkgActivity.trim()
+                        }
+                        style={btnStyle}
+                      >
+                        {busy === id ? 'Working…' : 'Install APK + Launch'}
+                      </button>
+                    ) : isReady ? (
+                      <button
+                        type="button"
+                        onClick={() => void onInstallAndLaunch(id)}
+                        disabled={busy !== null || !appPath.trim() || !bundleId.trim()}
+                        style={btnStyle}
+                      >
+                        {busy === id ? 'Working…' : 'Install + Launch'}
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => void onBoot(id)}
+                        disabled={busy !== null}
+                        style={btnStyle}
+                      >
+                        {busy === id ? 'Booting…' : 'Boot'}
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       )}

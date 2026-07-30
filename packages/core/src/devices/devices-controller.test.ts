@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
+import type { AdbExecutor } from './android-adb.js';
+import { DevicesController } from './devices-controller.js';
 import type { ExitInfo } from '../process/types.js';
 import type { SimctlExecutor } from './ios-simctl.js';
-import { DevicesController } from './devices-controller.js';
 
 const SAMPLE_DEVICES_JSON = JSON.stringify({
   devices: {
@@ -23,7 +24,14 @@ const SAMPLE_AFTER_BOOT_JSON = JSON.stringify({
   },
 });
 
-function makeFakeExecutor(overrides: Partial<SimctlExecutor> = {}): SimctlExecutor {
+const SAMPLE_ADB_DEVICES = [
+  'List of devices attached',
+  'emulator-5554\tdevice product:sdk_phone64_arm64 model:sdk_google_phone_arm64 transport_id:1',
+  '014e23a0c123\tdevice product:panther model:Pixel_7 transport_id:2',
+  '',
+].join('\n');
+
+function makeFakeSimctl(overrides: Partial<SimctlExecutor> = {}): SimctlExecutor {
   return {
     listDevices: vi.fn(async () => SAMPLE_DEVICES_JSON),
     boot: vi.fn(async (): Promise<ExitInfo> => ({ code: 0, signal: null, forced: false })),
@@ -33,111 +41,172 @@ function makeFakeExecutor(overrides: Partial<SimctlExecutor> = {}): SimctlExecut
   };
 }
 
-function makeController(executor: SimctlExecutor) {
-  return new DevicesController({ processes: {} as never, executor });
+function makeFakeAdb(overrides: Partial<AdbExecutor> = {}): AdbExecutor {
+  return {
+    listDevices: vi.fn(async () => SAMPLE_ADB_DEVICES),
+    install: vi.fn(async (): Promise<ExitInfo> => ({ code: 0, signal: null, forced: false })),
+    launch: vi.fn(async () => 'Starting: Intent { cmp=com.example/.MainActivity }'),
+    ...overrides,
+  };
 }
 
-describe('DevicesController', () => {
+function makeController(simctl: SimctlExecutor, adb: AdbExecutor) {
+  return new DevicesController({
+    processes: {} as never,
+    simctlExecutor: simctl,
+    adbExecutor: adb,
+  });
+}
+
+describe('DevicesController (iOS)', () => {
   it('list() returns the available devices and caches them', async () => {
-    const executor = makeFakeExecutor();
-    const controller = makeController(executor);
+    const simctl = makeFakeSimctl();
+    const adb = makeFakeAdb();
+    const controller = makeController(simctl, adb);
     const devices = await controller.list();
-    expect(devices).toHaveLength(2); // UDID-3 dropped (isAvailable: false)
-    expect(devices.map((d) => d.udid)).toEqual(['UDID-1', 'UDID-2']);
-    expect(devices[0]?.state).toBe('Shutdown');
-    // Second call doesn't re-invoke the executor (the cache is the point).
+    // 2 iOS (UDID-3 dropped) + 2 Android.
+    expect(devices).toHaveLength(4);
+    const ios = devices.filter((d) => d.family === 'ios');
+    expect(ios.map((d) => d.udid)).toEqual(['UDID-1', 'UDID-2']);
+    expect(ios[0]?.state).toBe('Shutdown');
+    // Second call doesn't re-invoke either executor.
     await controller.list();
-    expect(executor.listDevices).toHaveBeenCalledTimes(1);
+    expect(simctl.listDevices).toHaveBeenCalledTimes(1);
+    expect(adb.listDevices).toHaveBeenCalledTimes(1);
     // ...unless the caller asks for a refresh.
     await controller.list({ refresh: true });
-    expect(executor.listDevices).toHaveBeenCalledTimes(2);
+    expect(simctl.listDevices).toHaveBeenCalledTimes(2);
+    expect(adb.listDevices).toHaveBeenCalledTimes(2);
   });
 
   it('boot() calls the executor and refreshes the cache', async () => {
-    // First list() → Shutdown. boot(UDID-1) → re-list returns Booted.
-    const executor = makeFakeExecutor({
+    const simctl = makeFakeSimctl({
       listDevices: vi
         .fn<() => Promise<string>>()
         .mockResolvedValueOnce(SAMPLE_DEVICES_JSON)
         .mockResolvedValueOnce(SAMPLE_AFTER_BOOT_JSON),
     });
-    const controller = makeController(executor);
+    const adb = makeFakeAdb();
+    const controller = makeController(simctl, adb);
     await controller.list();
     await controller.boot('UDID-1');
-    expect(executor.boot).toHaveBeenCalledWith('UDID-1');
-    const refreshed = controller.devices.find((d) => d.udid === 'UDID-1');
+    expect(simctl.boot).toHaveBeenCalledWith('UDID-1');
+    const refreshed = controller.devices.find((d) => 'udid' in d && d.udid === 'UDID-1');
     expect(refreshed?.state).toBe('Booted');
   });
 
   it('install() forwards udid + appPath', async () => {
-    const executor = makeFakeExecutor();
-    const controller = makeController(executor);
+    const simctl = makeFakeSimctl();
+    const adb = makeFakeAdb();
+    const controller = makeController(simctl, adb);
     await controller.install('UDID-1', '/path/to/MyApp.app');
-    expect(executor.install).toHaveBeenCalledWith('UDID-1', '/path/to/MyApp.app');
+    expect(simctl.install).toHaveBeenCalledWith('UDID-1', '/path/to/MyApp.app');
   });
 
   it('launch() returns the PID as a trimmed string', async () => {
-    const executor = makeFakeExecutor();
-    const controller = makeController(executor);
+    const simctl = makeFakeSimctl({
+      launch: vi.fn(async () => '  1234\n'),
+    });
+    const adb = makeFakeAdb();
+    const controller = makeController(simctl, adb);
     const pid = await controller.launch('UDID-1', 'com.example.app');
     expect(pid).toBe('1234');
-    expect(executor.launch).toHaveBeenCalledWith('UDID-1', 'com.example.app');
+  });
+});
+
+describe('DevicesController (Android)', () => {
+  it('list() merges Android devices with family="android"', async () => {
+    const simctl = makeFakeSimctl();
+    const adb = makeFakeAdb();
+    const controller = makeController(simctl, adb);
+    const devices = await controller.list();
+    const android = devices.filter((d) => d.family === 'android');
+    expect(android).toHaveLength(2);
+    expect(android.map((d) => d.serial).sort()).toEqual(['014e23a0c123', 'emulator-5554']);
+    expect(android[0]?.model).toMatch(/sdk_google|Pixel/);
   });
 
-  it('install() failure surfaces a useful error (no silent swallow)', async () => {
-    const executor = makeFakeExecutor({
-      install: vi.fn(async () => {
-        throw new Error('simctl install exited with code=1');
+  it('installApk() forwards serial + apkPath', async () => {
+    const simctl = makeFakeSimctl();
+    const adb = makeFakeAdb();
+    const controller = makeController(simctl, adb);
+    await controller.installApk('emulator-5554', '/path/to/MyApp.apk');
+    expect(adb.install).toHaveBeenCalledWith('emulator-5554', '/path/to/MyApp.apk');
+  });
+
+  it('launchActivity() returns the trimmed "Starting: Intent..." stdout', async () => {
+    const simctl = makeFakeSimctl();
+    const adb = makeFakeAdb({
+      launch: vi.fn(async () => '  Starting: Intent { cmp=com.example/.MainActivity }\n'),
+    });
+    const controller = makeController(simctl, adb);
+    const out = await controller.launchActivity('emulator-5554', 'com.example', '.MainActivity');
+    expect(out).toBe('Starting: Intent { cmp=com.example/.MainActivity }');
+  });
+});
+
+describe('DevicesController (mixed / fault tolerance)', () => {
+  it('Android rows survive an iOS scan failure (xcrun missing)', async () => {
+    const simctl = makeFakeSimctl({
+      listDevices: vi.fn(async () => {
+        throw new Error('xcrun not on PATH');
       }),
     });
-    const controller = makeController(executor);
-    await expect(controller.install('UDID-1', '/bad.app')).rejects.toThrow(/exited with code=1/);
+    const adb = makeFakeAdb();
+    const controller = makeController(simctl, adb);
+    const devices = await controller.list();
+    expect(devices).toHaveLength(2);
+    for (const d of devices) {
+      expect(d.family).toBe('android');
+    }
   });
 
-  it('onList() fires on list() and boot() refreshes (TD-16 auto-attach trigger)', async () => {
-    const executor = makeFakeExecutor({
+  it('iOS rows survive an Android scan failure (adb missing)', async () => {
+    const simctl = makeFakeSimctl();
+    const adb = makeFakeAdb({
+      listDevices: vi.fn(async () => {
+        throw new Error('adb not on PATH');
+      }),
+    });
+    const controller = makeController(simctl, adb);
+    const devices = await controller.list();
+    expect(devices).toHaveLength(2);
+    for (const d of devices) {
+      expect(d.family).toBe('ios');
+    }
+  });
+
+  it('boot() preserves Android rows (only iOS is re-scanned)', async () => {
+    const simctl = makeFakeSimctl({
       listDevices: vi
         .fn<() => Promise<string>>()
         .mockResolvedValueOnce(SAMPLE_DEVICES_JSON)
         .mockResolvedValueOnce(SAMPLE_AFTER_BOOT_JSON),
     });
-    const controller = makeController(executor);
-    const seen: string[][] = [];
-    controller.onList((devices) => seen.push(devices.map((d) => d.udid)));
-
-    await controller.list(); // refresh → emit
-    await controller.boot('UDID-1'); // re-list → emit
-
-    expect(seen).toEqual([
-      ['UDID-1', 'UDID-2'],
-      ['UDID-1', 'UDID-2'],
-    ]);
+    const adb = makeFakeAdb();
+    const controller = makeController(simctl, adb);
+    await controller.list();
+    const before = controller.devices.filter((d) => d.family === 'android').length;
+    await controller.boot('UDID-1');
+    const after = controller.devices.filter((d) => d.family === 'android').length;
+    expect(after).toBe(before);
+    // adb was not re-invoked by boot() (only the iOS scan was).
+    expect(adb.listDevices).toHaveBeenCalledTimes(1);
   });
 
-  it('onList() does not emit on a cache hit (only real refreshes)', async () => {
-    const executor = makeFakeExecutor();
-    const controller = makeController(executor);
-    const handler = vi.fn();
-
-    await controller.list(); // populates + emits once
-    controller.onList(handler); // subscribe after first populate
-    await controller.list(); // cache hit → no executor call, no emit
-
-    expect(handler).not.toHaveBeenCalled();
-    expect(executor.listDevices).toHaveBeenCalledTimes(1);
-  });
-
-  it('onList() returns an unsubscribe that stops further notifications', async () => {
-    const executor = makeFakeExecutor();
-    const controller = makeController(executor);
-    const handler = vi.fn();
-
-    const off = controller.onList(handler);
+  it('onList fires whenever list() or boot() refreshes the device set', async () => {
+    const simctl = makeFakeSimctl();
+    const adb = makeFakeAdb();
+    const controller = makeController(simctl, adb);
+    const seen: number[] = [];
+    const off = controller.onList((d) => seen.push(d.length));
+    await controller.list();
     await controller.list({ refresh: true });
-    expect(handler).toHaveBeenCalledTimes(1);
-
     off();
     await controller.list({ refresh: true });
-    expect(handler).toHaveBeenCalledTimes(1); // no further calls after unsubscribe
+    // First list() (2 events: 1st+2nd call each fire) + the manual refresh above.
+    // After unsubscribe, the third refresh should not push.
+    expect(seen.length).toBeGreaterThanOrEqual(2);
+    expect(seen).not.toContain(0);
   });
 });

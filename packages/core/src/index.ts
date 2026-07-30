@@ -155,8 +155,14 @@ export type {
 // Devices / simulators (E-09)
 export { parseSimctlListDevices, makeProcessSimctlExecutor } from './devices/ios-simctl.js';
 export type { SimDevice, SimctlExecutor } from './devices/ios-simctl.js';
+export type { AdbDevice, AdbExecutor, DeviceFamily } from './devices/android-adb.js';
 export { DevicesController } from './devices/devices-controller.js';
-export type { DevicesControllerDeps } from './devices/devices-controller.js';
+export type {
+  AndroidDevice,
+  Device,
+  DevicesControllerDeps,
+  IosSimDevice,
+} from './devices/devices-controller.js';
 
 // Unified log pipeline (E-10)
 export { UnifiedLogController } from './unified-log/unified-log-controller.js';

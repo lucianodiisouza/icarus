@@ -6,6 +6,7 @@ import {
   createMetroModule,
   createUnifiedLogModule,
   DevicesController,
+  type IosSimDevice,
   IosSyslogSource,
   MetroController,
   ModuleRegistry,
@@ -17,12 +18,15 @@ import {
   CHANNELS,
   devicesBootInputSchema,
   devicesInstallInputSchema,
+  devicesInstallApkInputSchema,
+  devicesLaunchActivityInputSchema,
   devicesLaunchInputSchema,
   devicesListInputSchema,
   EVENTS,
   metroStartInputSchema,
   metroStopInputSchema,
   SUBSCRIPTIONS,
+  type DevicesLaunchActivityOutput,
   type DevicesLaunchOutput,
   type DevicesListOutput,
   type MetroStartOutput,
@@ -307,11 +311,37 @@ router.register(
   },
 );
 
+// --- E-22 / TD-13 Android (adb) — mirrors the iOS pair above. ---
+router.register(
+  CHANNELS.DEVICES_INSTALL_APK,
+  devicesInstallApkInputSchema,
+  async ({ serial, apkPath }): Promise<void> => {
+    await devices.installApk(serial, apkPath);
+  },
+);
+
+router.register(
+  CHANNELS.DEVICES_LAUNCH_ACTIVITY,
+  devicesLaunchActivityInputSchema,
+  async ({ serial, pkg, activity }): Promise<DevicesLaunchActivityOutput> => {
+    const message = await devices.launchActivity(serial, pkg, activity);
+    return { message };
+  },
+);
+
 // --- auto-attach (TD-16) ---
 let autoAttachEnabled = true;
 const autoAttach = new AutoAttach({
   isMetroReady: () => metro.status === 'ready',
-  firstBootedSimUdid: () => devices.devices.find((d) => d.state === 'Booted')?.udid ?? null,
+  // iOS-only for now: the iOS-native syslog fan-in is wired (TD-18), and CDP attach
+  // through `simctl` is the proven path. Android auto-attach is a follow-up — it'll
+  // need a parallel logcat fan-in and a separate readiness policy.
+  firstBootedSimUdid: () => {
+    const sim = devices.devices.find(
+      (d): d is IosSimDevice => d.family === 'ios' && d.state === 'Booted',
+    );
+    return sim?.udid ?? null;
+  },
   cdpConnect: async () => {
     await cdp.connect();
   },
@@ -341,7 +371,11 @@ router.register(
 // set re-runs the policy, which then picks the first booted sim.
 autoAttach.start({
   onMetroStatusChange: (handler) => metro.onStatus(handler),
-  onDevicesListChange: (handler) => devices.onList((list) => handler(list.map((d) => d.udid))),
+  // iOS-only list (UDIDs); see the comment on `firstBootedSimUdid` above.
+  onDevicesListChange: (handler) =>
+    devices.onList((list) =>
+      handler(list.filter((d): d is IosSimDevice => d.family === 'ios').map((d) => d.udid)),
+    ),
 });
 
 // --- AI assistant (E-13) --- query/command channels; the `ai.ask` stream is bound in `bindSubscriptions`.

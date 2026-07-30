@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type {
   CdpConsoleEntry,
   CdpNetworkEvent,
+  Device,
   DoctorReport,
   MetroLogEvent,
   MetroStatus,
@@ -41,6 +42,10 @@ export const CHANNELS = {
   DEVICES_INSTALL: 'command:devices.install',
   /** Command: launch an installed app on a simulator (E-09). */
   DEVICES_LAUNCH: 'command:devices.launch',
+  /** Command: install an .apk on an Android device/emulator (E-22 / TD-13). */
+  DEVICES_INSTALL_APK: 'command:devices.installApk',
+  /** Command: launch an app's main activity on Android (E-22 / TD-13). */
+  DEVICES_LAUNCH_ACTIVITY: 'command:devices.launchActivity',
   /** Query: get the current auto-attach enabled flag (TD-16). */
   AUTO_ATTACH_GET: 'query:autoAttach.get',
   /** Command: set the auto-attach enabled flag. */
@@ -223,10 +228,12 @@ export interface MetroStatusEvent {
   readonly projectKind: ProjectKind;
 }
 
-// --- query:devices.list / command:devices.{boot,install,launch} (E-09) ---
+// --- query:devices.list / command:devices.{boot,install,launch} (E-09 / E-22) ---
 export const devicesListInputSchema = z.void();
 export type { SimDevice };
-export type DevicesListOutput = SimDevice[];
+// Re-export the unified `Device` (iOS sim + Android adb) so renderer can consume one shape.
+export type { Device, IosSimDevice, AndroidDevice, DeviceFamily } from '@icarus/core';
+export type DevicesListOutput = Device[];
 
 // --- E-10 unified log event ---
 export type { UnifiedLogEntry };
@@ -258,6 +265,26 @@ export const devicesLaunchInputSchema = z.object({
 export type DevicesLaunchInput = z.infer<typeof devicesLaunchInputSchema>;
 export interface DevicesLaunchOutput {
   readonly pid: string;
+}
+
+// Android (E-22 / TD-13). The install/launch pair mirrors iOS but uses `serial` (the
+// adb identifier) and pkg/activity instead of bundleId. Both pairs are exposed as
+// distinct IPC channels so a single device family can't accidentally pass an Android
+// serial to a simctl call.
+export const devicesInstallApkInputSchema = z.object({
+  serial: z.string().min(1),
+  apkPath: z.string().min(1),
+});
+export type DevicesInstallApkInput = z.infer<typeof devicesInstallApkInputSchema>;
+
+export const devicesLaunchActivityInputSchema = z.object({
+  serial: z.string().min(1),
+  pkg: z.string().min(1),
+  activity: z.string().min(1),
+});
+export type DevicesLaunchActivityInput = z.infer<typeof devicesLaunchActivityInputSchema>;
+export interface DevicesLaunchActivityOutput {
+  readonly message: string;
 }
 
 // --- query:autoAttach.get / command:autoAttach.set (TD-16) ---
