@@ -94,6 +94,13 @@ export const CHANNELS = {
    * the only door — opt-in per key, never auto.
    */
   STORAGE_DELETE: 'command:storage.delete',
+  /**
+   * Command: take a snapshot of the running app's perf metrics (E-19, M3
+   * performance inspector, minimal viable). Pull-only on click. Returns
+   * a typed `PerfSnapshot` (JS heap, JS metrics, render hot-spots, optional
+   * recent-error count).
+   */
+  PERF_SNAPSHOT: 'command:perf.snapshot',
 } as const;
 
 export type ChannelName = (typeof CHANNELS)[keyof typeof CHANNELS];
@@ -387,3 +394,7 @@ export const storageDeleteInputSchema = z.object({
   backend: storageBackendSchema,
   key: z.string().min(1),
 });
+
+// --- command:perf.snapshot (E-19, M3 performance inspector — minimal viable) ---
+export type { PerfSnapshot } from '@icarus/core';
+export const perfSnapshotInputSchema = z.void();

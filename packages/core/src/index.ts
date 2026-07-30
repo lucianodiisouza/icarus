@@ -72,6 +72,18 @@ export type {
   NetworkBodyOptions,
   CdpSendLike,
 } from './protocol/cdp/network-body.js';
+// M3 performance inspector (E-19): JS heap + JS metrics + render hot-spots.
+export { getJsHeap, getJsMetrics } from './protocol/cdp/perf.js';
+export type {
+  JsHeapResult,
+  JsHeapUsage,
+  JsMetricsResult,
+  JsMetricEntry,
+} from './protocol/cdp/perf.js';
+export { RENDER_HOTSPOT_PROBE } from './protocol/cdp/render-hotspots.js';
+export type { RenderHotspot, RenderHotspotProbe } from './protocol/cdp/render-hotspots.js';
+export { takePerfSnapshot } from './protocol/cdp/perf-snapshot.js';
+export type { PerfSnapshot } from './protocol/cdp/perf-snapshot.js';
 // M3 component tree inspector (E-17): Runtime.evaluate wrapper + fiber tree walker.
 export { evaluateOnTarget } from './protocol/cdp/eval.js';
 export type { EvaluateOptions, EvaluateResult } from './protocol/cdp/eval.js';

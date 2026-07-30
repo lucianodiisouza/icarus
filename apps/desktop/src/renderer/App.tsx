@@ -82,6 +82,8 @@ export function App(): ReactElement {
       <ComponentTreeSection />
       <hr style={{ margin: '28px 0', border: 0, borderTop: '1px solid #eaeef2' }} />
       <StorageSection />
+      <hr style={{ margin: '28px 0', border: 0, borderTop: '1px solid #eaeef2' }} />
+      <PerfSection />
     </main>
   );
 }
@@ -2085,5 +2087,235 @@ function formatStorageError(result: { kind: string; name?: string; message?: str
       return `Unknown error: ${result.kind}`;
   }
 }
+
+/**
+ * E-19 performance inspector (minimal viable). Four cards on click of Refresh:
+ *   - JS heap (used / total)
+ *   - JS metric counts (scripts + GC events, if available)
+ *   - Top 20 estimated re-render hot-spots
+ *   - Recent console-error count (currently always 0 — extension point)
+ * Pull-only, click-driven.
+ */
+function PerfSection(): ReactElement {
+  const [snapshot, setSnapshot] = useState<
+    | { kind: 'idle' }
+    | { kind: 'loading' }
+    | { kind: 'ready'; snap: import('../shared/ipc/contracts.js').PerfSnapshot }
+    | { kind: 'error'; message: string }
+  >({ kind: 'idle' });
+
+  const refresh = useCallback(async () => {
+    setSnapshot({ kind: 'loading' });
+    try {
+      const snap = await window.icarus.perfSnapshot();
+      setSnapshot({ kind: 'ready', snap });
+    } catch (e) {
+      setSnapshot({ kind: 'error', message: e instanceof Error ? e.message : String(e) });
+    }
+  }, []);
+
+  return (
+    <section>
+      <h2 style={{ fontSize: 16 }}>Performance (E-19 · minimal viable)</h2>
+      <p style={{ color: '#57606a', marginTop: 0, fontSize: 13 }}>
+        JS heap + JS metrics + estimated re-render hot-spots. Click <strong>Refresh</strong> to take
+        a snapshot. FPS / native frame timing require the in-app bridge (out of scope for v1).
+      </p>
+      <button
+        type="button"
+        onClick={() => void refresh()}
+        disabled={snapshot.kind === 'loading'}
+        style={btnStyle}
+      >
+        {snapshot.kind === 'loading' ? 'Refreshing…' : 'Refresh perf'}
+      </button>
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+          gap: 12,
+          marginTop: 12,
+        }}
+      >
+        <HeapCard snap={snapshot} />
+        <MetricsCard snap={snapshot} />
+        <ErrorCountCard snap={snapshot} />
+        <HotspotsCard snap={snapshot} />
+      </div>
+    </section>
+  );
+}
+
+function HeapCard({
+  snap,
+}: {
+  snap:
+    | { kind: 'idle' }
+    | { kind: 'loading' }
+    | { kind: 'ready'; snap: import('../shared/ipc/contracts.js').PerfSnapshot }
+    | { kind: 'error'; message: string };
+}): ReactElement {
+  return (
+    <div style={cardStyle}>
+      <p style={cardLabelStyle}>JS heap</p>
+      {snap.kind !== 'ready' ? (
+        <p style={cardEmptyStyle}>—</p>
+      ) : !snap.snap.jsHeap.supported ? (
+        <p style={cardEmptyStyle}>
+          Not supported
+          <br />
+          <span style={{ fontSize: 11, color: '#8c959f' }}>{snap.snap.jsHeap.reason}</span>
+        </p>
+      ) : (
+        <>
+          <p style={cardValueStyle}>{formatBytes(snap.snap.jsHeap.used)}</p>
+          <p style={{ fontSize: 11, color: '#8c959f', margin: '2px 0 0' }}>
+            of {formatBytes(snap.snap.jsHeap.total)} total
+            {snap.snap.jsHeap.limit !== undefined
+              ? ` · cap ${formatBytes(snap.snap.jsHeap.limit)}`
+              : ''}
+          </p>
+        </>
+      )}
+    </div>
+  );
+}
+
+function MetricsCard({
+  snap,
+}: {
+  snap:
+    | { kind: 'idle' }
+    | { kind: 'loading' }
+    | { kind: 'ready'; snap: import('../shared/ipc/contracts.js').PerfSnapshot }
+    | { kind: 'error'; message: string };
+}): ReactElement {
+  return (
+    <div style={cardStyle}>
+      <p style={cardLabelStyle}>JS performance</p>
+      {snap.kind !== 'ready' ? (
+        <p style={cardEmptyStyle}>—</p>
+      ) : !snap.snap.jsMetrics.supported ? (
+        <p style={cardEmptyStyle}>
+          Not supported
+          <br />
+          <span style={{ fontSize: 11, color: '#8c959f' }}>{snap.snap.jsMetrics.reason}</span>
+        </p>
+      ) : (
+        <p style={{ fontSize: 12, color: '#24292f', margin: 0 }}>
+          {snap.snap.jsMetrics.metrics.length} metrics
+        </p>
+      )}
+    </div>
+  );
+}
+
+function ErrorCountCard({
+  snap,
+}: {
+  snap:
+    | { kind: 'idle' }
+    | { kind: 'loading' }
+    | { kind: 'ready'; snap: import('../shared/ipc/contracts.js').PerfSnapshot }
+    | { kind: 'error'; message: string };
+}): ReactElement {
+  return (
+    <div style={cardStyle}>
+      <p style={cardLabelStyle}>Recent errors</p>
+      {snap.kind !== 'ready' ? (
+        <p style={cardEmptyStyle}>—</p>
+      ) : (
+        <p style={cardValueStyle}>{snap.snap.recentErrorCount ?? 0}</p>
+      )}
+    </div>
+  );
+}
+
+function HotspotsCard({
+  snap,
+}: {
+  snap:
+    | { kind: 'idle' }
+    | { kind: 'loading' }
+    | { kind: 'ready'; snap: import('../shared/ipc/contracts.js').PerfSnapshot }
+    | { kind: 'error'; message: string };
+}): ReactElement {
+  return (
+    <div style={{ ...cardStyle, gridColumn: '1 / -1' }}>
+      <p style={cardLabelStyle}>
+        Top estimated re-renders{' '}
+        <span style={{ fontSize: 11, color: '#8c959f', fontWeight: 400 }}>
+          (heuristic: counts `memoizedProps` alternates in the fiber chain)
+        </span>
+      </p>
+      {snap.kind !== 'ready' ? (
+        <p style={cardEmptyStyle}>—</p>
+      ) : !snap.snap.renderHotspots.ok ? (
+        <p style={cardEmptyStyle}>
+          {snap.snap.renderHotspots.kind === 'no_fiber_root'
+            ? 'No React fiber root — connect to an RN app first.'
+            : 'Probe failed.'}
+        </p>
+      ) : snap.snap.renderHotspots.hotspots.length === 0 ? (
+        <p style={cardEmptyStyle}>No components to report.</p>
+      ) : (
+        <table style={{ borderCollapse: 'collapse', fontSize: 12, width: '100%' }}>
+          <thead>
+            <tr style={{ borderBottom: '1px solid #eaeef2', textAlign: 'left' }}>
+              <th style={hotThStyle}>Component</th>
+              <th style={{ ...hotThStyle, width: 80, textAlign: 'right' }}>Estimated renders</th>
+            </tr>
+          </thead>
+          <tbody>
+            {snap.snap.renderHotspots.hotspots.map((h, i) => (
+              <tr key={`${h.name}:${i}`} style={{ borderBottom: '1px solid #f0f3f6' }}>
+                <td style={hotTdStyle}>{h.name}</td>
+                <td style={{ ...hotTdStyle, textAlign: 'right', fontFamily: 'ui-monospace' }}>
+                  {h.renders}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
+const cardStyle: React.CSSProperties = {
+  border: '1px solid #eaeef2',
+  borderRadius: 6,
+  padding: 12,
+  background: '#fff',
+};
+const cardLabelStyle: React.CSSProperties = {
+  margin: 0,
+  fontSize: 11,
+  fontWeight: 600,
+  color: '#57606a',
+  textTransform: 'uppercase',
+  letterSpacing: 0.4,
+};
+const cardValueStyle: React.CSSProperties = {
+  margin: '6px 0 0',
+  fontSize: 24,
+  fontWeight: 600,
+  color: '#24292f',
+};
+const cardEmptyStyle: React.CSSProperties = {
+  margin: '6px 0 0',
+  fontSize: 13,
+  color: '#8c959f',
+};
+const hotThStyle: React.CSSProperties = {
+  padding: '4px 6px',
+  fontSize: 11,
+  fontWeight: 600,
+  color: '#57606a',
+};
+const hotTdStyle: React.CSSProperties = {
+  padding: '4px 6px',
+  fontSize: 12,
+};
 
 const btnStyle = { padding: '8px 16px', fontSize: 14, cursor: 'pointer' } as const;

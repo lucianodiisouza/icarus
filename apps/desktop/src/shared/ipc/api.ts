@@ -20,6 +20,7 @@ import type {
   StorageDeleteResult,
   StorageGetResult,
   StorageSnapshot,
+  PerfSnapshot,
 } from './contracts.js';
 import type {
   AutoAttachSetInput,
@@ -189,6 +190,14 @@ export interface IcarusApi {
    * door — opt-in per key, never auto.
    */
   storageDelete(input: { backend: StorageBackendKind; key: string }): Promise<StorageDeleteResult>;
+
+  // --- M3 performance inspector (E-19, minimal viable) ---
+  /**
+   * Take a snapshot of the running app's perf metrics: JS heap, JS metrics,
+   * render hot-spots (top 20 by estimated re-render count), and an optional
+   * recent-error count. Pull-only on click; the renderer is the only door.
+   */
+  perfSnapshot(): Promise<PerfSnapshot>;
 }
 
 declare global {

@@ -27,6 +27,7 @@ import type {
   StorageDeleteResult,
   StorageGetResult,
   StorageSnapshot,
+  PerfSnapshot,
 } from '../shared/ipc/contracts.js';
 import type { IcarusApi, Unsubscribe } from '../shared/ipc/api.js';
 
@@ -102,6 +103,9 @@ const api: IcarusApi = {
     ipcRenderer.invoke(CHANNELS.STORAGE_GET, input) as Promise<StorageGetResult>,
   storageDelete: (input: { backend: StorageBackendKind; key: string }) =>
     ipcRenderer.invoke(CHANNELS.STORAGE_DELETE, input) as Promise<StorageDeleteResult>,
+  // M3 performance inspector (E-19, minimal viable): JS heap + metrics + render
+  // hot-spots. Pull-only on click.
+  perfSnapshot: () => ipcRenderer.invoke(CHANNELS.PERF_SNAPSHOT) as Promise<PerfSnapshot>,
 };
 
 contextBridge.exposeInMainWorld('icarus', api);

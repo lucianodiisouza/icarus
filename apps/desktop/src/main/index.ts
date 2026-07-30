@@ -50,6 +50,7 @@ import {
   registerComponentTreeChannels,
 } from './component-tree-controller.js';
 import { createStorageController, registerStorageChannels } from './storage-controller.js';
+import { createPerfController, registerPerfChannels } from './perf-controller.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -198,6 +199,10 @@ const componentTree = createComponentTreeController();
 // M3 storage inspector (E-18): same shape, three channels (list / get / delete)
 // for AsyncStorage and MMKV in the running app.
 const storage = createStorageController();
+// M3 performance inspector (E-19, minimal viable): JS heap + JS metrics + render
+// hot-spots from the existing component tree (E-17). The `recentErrorCount` getter
+// is left unset in v1; the renderer treats it as 0 / "n/a".
+const perf = createPerfController();
 const cdp = createCdpController({
   unified,
   captureNetworkEvent: (event) => {
@@ -214,6 +219,7 @@ const cdp = createCdpController({
     networkInspector.setCdpSend(adapted);
     componentTree.setCdpSend(adapted);
     storage.setCdpSend(adapted);
+    perf.setCdpSend(adapted);
   },
 });
 registerCdpChannels(router, cdp, () => autoAttach.markUserDisconnected());
@@ -235,6 +241,12 @@ registerComponentTreeChannels({
 registerStorageChannels({
   router,
   controller: storage,
+});
+
+// Register the performance inspector's IPC channel.
+registerPerfChannels({
+  router,
+  controller: perf,
 });
 
 router.register(
