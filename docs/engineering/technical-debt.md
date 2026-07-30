@@ -73,7 +73,7 @@ Deferred work, logged so it isn't lost:
 
 | ID | Deferred item | Why deferred | Pay-down trigger | Status |
 |----|---------------|--------------|------------------|--------|
-| TD-13 | **Android via adb** (E-09 + E-10 follow-up) | macOS-first (NG-7); iOS shipped first, Android slots into the same `SimctlExecutor`-shape seam | Android becomes a committed target | 🟥 accepted |
+| TD-13 | **Android via adb** (E-09 + E-10 follow-up) | macOS-first (NG-7); iOS shipped first, Android slots into the same `SimctlExecutor`-shape seam | Android becomes a committed target | 🟩 **resolved 2026-07-30** (E-22 horizontal slice): `packages/core/src/devices/android-adb.ts` adds the same executor shape as the iOS simctl one. `DevicesController` is now a tagged-union over `family: 'ios' \| 'android'`, scanning both in parallel and tolerating either family's failure (Android user missing xcrun still gets their adb list, and vice versa). +9 adb-parser + +11 controller-mix = 20 new core tests. Renderer is one table with a Family column; iOS uses `bundleId`, Android uses `pkg/.MainActivity`. The contract has two new IPC channels (`command:devices.installApk`, `command:devices.launchActivity`) — Android can't accidentally pass a serial to a simctl call. **Still open (out-of-scope for this slice):** Android auto-attach (needs a logcat `SyslogFanIn` equivalent + readiness policy); parsing the .apk manifest to derive the main activity (user enters `pkg/.MainActivity` in the UI for v1). Both are iOS's shape, mechanical to add. |
 | TD-14 | **Wrap Metro/Devices/Logs as `FeatureModule`s** (E-05 follow-up) | Mechanical one-line wrap per controller; deferred to keep E-05 a small interface-extraction slice | Next module lands (or first refactor pass) | 🟩 **resolved 2026-07-25**: thin adapters in `feature-module/{metro,unified-log,devices}-module.ts`. Conformance kit run against all 3 (PR #20). |
 | TD-15 | **`ModuleRegistry`** that auto-wires IPC channels for registered modules | The 'adding a new module needs no core changes' DoD (ADR-0007) | E-05 refactor + first new module lands | 🟩 **resolved 2026-07-25**: the "auto-wires IPC channels" half landed. `FeatureModule` now declares its runtime `events` list; `bindRegistryToWindow` (apps/desktop) iterates `registry.list()` and binds each module's events to the window over the generic `module.{id}.event.{name}` channels. The imperative `metro.onLog`/`metro.onStatus` wiring in `createWindow` and the per-module `EVENTS.METRO_*`/`UNIFIED_LOG` channels + typed preload methods are gone — the renderer subscribes via `onModuleEvent`. Adding a module needs no `createWindow`/preload/contract edits. Fixed a latent bug in passing: the unified-log panel never received data (its module events were never bound to a window); it is now live. Metro `status` event enriched to a self-contained snapshot (status/port/project). +13 tests. |
 | TD-16 | **Auto-attach: Metro ready + sim booted → CDP connect** | Plumbing is in place (controllers all know about each other through main); the *policy* needs design-partner input | M1 design-partner feedback | 🟩 **resolved 2026-07-25**: `apps/desktop/src/main/auto-attach.ts` ships the policy (default ENABLED, disconnect-means-stop, 1s debounce) with 10 tests. The M1 DoD is now met end-to-end: start Metro + boot sim → Icarus auto-connects → unified log shows live console + Metro output (PR #23). **Follow-up closed 2026-07-26**: `DevicesController` now emits an `onList` event (fired on every `list()`/`boot()` refresh via a single `#setDevices` seam), and `index.ts` wires it as the second auto-attach trigger — so a sim appearing/booting now re-evaluates the policy immediately, not only on the next Metro-ready event. +3 tests (emits on refresh, silent on cache hit, unsubscribe). |
@@ -88,6 +88,44 @@ M1 → M2 gate: **CLEARED 2026-07-25.** M2 (AI data boundary + assistant) was bl
 opt-in anonymous telemetry ([ADR-0010](../adr/ADR-0010-telemetry-opt-in.md)) and a
 swappable BYOK-Claude-first provider ([ADR-0011](../adr/ADR-0011-ai-provider-byok-swappable.md)).
 E-12 / E-13 are unblocked to start designing.
+
+## M3+ retrospective — 2026-07-30
+
+> Full closeout: [reports/m3-closeout.md](reports/m3-closeout.md) — the 7 additive slices
+> shipped during the initial M3 pass, and the follow-up E-22 (Android via adb) +
+> OQ-22 (live in-app bridge) that paid down TD-13 and partially closed OQ-22.
+
+M3+ shipped 9 additive slices end-to-end on `main` since the M2 closeout: E-15 (opt-in
+log export), E-16 (network), E-17 (component tree), E-18 (storage), E-19 (perf minimal
+viable), E-20 (nav), E-21 (release workflow), E-22 (Android via adb), and the OQ-22
+live in-app bridge. The release pipeline is wired; the first public release is gated on
+design-partner validation (OQ-2).
+
+| Slice | Epic | What it does |
+|---|---|---|
+| E-15 | opt-in log export | JSONL dump, redacted, opt-in. The M2-closeout-named follow-on. |
+| E-16 | network | Correlated records by `requestId`, headers, opt-in body fetch. |
+| E-17 | component tree | Hierarchical React tree via `Runtime.evaluate` + fiber walker. |
+| E-18 | storage | AsyncStorage + MMKV list / get / delete. |
+| E-19 | perf (minimal viable) | JS heap + metrics + render hot-spots (heuristic). |
+| E-20 | nav | Reads from `globalThis.__ICARUS_NAV_STATE__` (user-installed bridge). |
+| E-21 | release workflow | `electron-builder` + tag-triggered GitHub Actions → signed `.dmg`. |
+| E-22 | Android via adb | Mirrors the iOS simctl pattern; `DevicesController` is a tagged union over `family`. |
+| OQ-22 | live in-app bridge | 750ms-tick poller + JSON-equality diff; deltas push on `EVENTS.BRIDGE_DELTA`. |
+
+Test count: 384 → 406 core (+22), 112 → 130 desktop (+18), e2e 10. Core coverage
+89.39% → 87.92% (still above 80% gate; the small drop is the new device/bridge code
+having more conditional branches than the average inspector).
+
+Deferred work, logged so it isn't lost:
+
+| ID | Deferred item | Why deferred | Pay-down trigger | Status |
+|----|---------------|--------------|------------------|--------|
+| TD-22 | **Android auto-attach** (E-22 follow-up) | iOS auto-attach is wired (TD-16) and the iOS syslog fan-in is iOS-only (TD-18). Android needs a parallel `LogcatFanIn` + a separate readiness policy. | Android becomes a committed target | 🟥 accepted |
+| TD-23 | **Heap + JS-metrics live push** (OQ-22 follow-up) | The `BridgePoller` is generic; only the probe expression and the IPC channel name change. Trivial to add — deferred to keep the OQ-22 slice tight. | When live heap deltas are useful to a design partner | 🟥 accepted |
+| TD-24 | **Per-window subscription routing** for bridge deltas | Current design broadcasts to the focused window — fine for the single-window desktop app. Multi-window would need a per-window envelope (the same pattern the E-03s unified log uses). | Multi-window support lands | 🟥 accepted |
+| TD-25 | **Manifest-driven main-activity lookup** for `launchActivity` | User enters `pkg/.MainActivity` in the UI for v1. Parsing the .apk would be a small aapt or `aapt2 dump xmltree` invocation — explicit non-goal for the E-22 thin slice. | UX feedback | 🟥 accepted |
+| TD-26 | **Formal ADR for the in-app bridge install UX** (OQ-22) | The bridge snippet is currently shown inline in the read-only sections and the live section explains it. A dedicated ADR is the right place to pin the versioned-publish contract once we know the field. | Before the live bridge becomes the recommended path | 🟥 accepted |
 
 The entries above are debts the _plan itself_ knowingly incurs. Real code will add more.
 Nothing here is a surprise — each maps to a documented decision (ADR) or non-goal, which
