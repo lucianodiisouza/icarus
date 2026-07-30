@@ -1,0 +1,91 @@
+name: Release
+
+# The release workflow is tag-triggered: pushing a tag of the form `v*` (e.g.
+# `v0.1.0`, `v1.0.0`) runs the build, signs + notarizes the macOS .dmg (when
+# secrets are set), and uploads the artifact to GitHub Releases.
+#
+# The workflow is intentionally separate from `ci.yml` — it runs on macOS
+# (because the artifact is a .dmg, which only builds on macOS), and it
+# uploads the artifact (CI does not).
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch: # allow manual trigger from the Actions tab
+
+# Cancel superseded runs on the same tag.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write # for creating the GitHub Release
+
+jobs:
+  release:
+    name: build + sign + notarize + upload
+    # macOS only — the artifact is a .dmg, which only electron-builder
+    # produces on macOS. Windows / Linux targets are commented out in
+    # `electron-builder.yml`; trigger: TD-12.
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install (with Electron binary)
+        # The release build needs the real Electron binary; the `ci.yml` verify
+        # job sets ELECTRON_SKIP_BINARY_DOWNLOAD=1, but this job doesn't.
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        # electron-vite produces the bundled main + preload + renderer
+        # into `apps/desktop/out/`. electron-builder then consumes that.
+        run: pnpm --filter @icarus/desktop build
+
+      - name: Package (electron-builder)
+        # electron-builder reads `apps/desktop/electron-builder.yml` and produces
+        # the .dmg + .zip. The CSC_NAME / notarization env vars are only present
+        # when the matching GitHub secrets are set on the repo — without them,
+        # the build produces an unsigned .dmg (and a clear warning in the log).
+        env:
+          # Code signing + notarization secrets. Set these on the repo
+          # (Settings → Secrets and variables → Actions) before cutting a
+          # release. They are NEVER committed to the repo.
+          CSC_NAME: ${{ secrets.APPLE_DEVELOPER_ID }}
+          CSC_LINK: ${{ secrets.APPLE_DEVELOPER_ID_CERT_P12_BASE64 }}
+          CSC_KEY_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_CERT_P12_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        # `--publish never` because the publish step would write a draft
+        # release with a changelog built from commits; the operator's job
+        # (per docs/engineering/RELEASE.md) is to write a real CHANGELOG
+        # entry and tag the release. Electron-builder's job is just the
+        # artifact.
+        run: pnpm --filter @icarus/desktop exec electron-builder --mac --publish never
+
+      - name: Upload artifacts to GitHub Release
+        # electron-builder produces these exact filenames (see the
+        # artifactName template in `electron-builder.yml`).
+        uses: softprops/action-gh-release@v2
+        with:
+          # The `tag_name` is the tag that triggered the run; the workflow
+          # reuses that tag to publish. `GITHUB_TOKEN` is injected by GH Actions.
+          tag_name: ${{ github.ref_name }}
+          # No body — the operator writes the CHANGELOG entry by hand. The
+          # doc explains the workflow.
+          generate_release_notes: false
+          files: |
+            apps/desktop/dist/Icarus-*.dmg
+            apps/desktop/dist/Icarus-*.zip
+          fail_on_unmatched_files: true

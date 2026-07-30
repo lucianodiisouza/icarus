@@ -1,0 +1,80 @@
+# electron-builder config for Icarus (E-21, release workflow).
+#
+# This config is the single source of truth for the packaged artifact. It
+# honors NG-7 (macOS-first): macOS is the active build; Windows / Linux are
+# commented out until those platforms become committed targets.
+#
+# The CI workflow (`.github/workflows/release.yml`) runs this on a tag push
+# (`v*`), signs + notarizes when the Apple Dev ID secrets are set, and
+# uploads the artifact to GitHub Releases. For local dev, `pnpm run release`
+# runs the same config but produces an unsigned .dmg + .zip.
+
+appId: dev.icarus.studio
+productName: Icarus
+copyright: Copyright © 2026 Icarus contributors
+asar: true
+# Directories electron-builder reads from / writes to. `out/` is the result of
+# `pnpm build` (electron-vite). `dist/` is electron-builder's output.
+directories:
+  output: dist
+  buildResources: build
+
+# Files that go into the app bundle (everything NOT here is excluded).
+files:
+  - out/**/*
+  - package.json
+  - '!**/.DS_Store'
+  - '!**/{.eslintrc,.prettierrc,.editorconfig}'
+
+# macOS is the active build target. The DMG + ZIP are the two artifacts.
+mac:
+  category: public.app-category.developer-tools
+  target:
+    - target: dmg
+      arch:
+        - x64
+        - arm64
+    - target: zip
+      arch:
+        - x64
+        - arm64
+  artifactName: ${productName}-${version}-${arch}.${ext}
+  # Hardened runtime is required for notarization; the CI workflow handles
+  # the actual codesign + notarize step (electron-builder will run them when
+  # the env vars are set).
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  # Entitlements (small, minimal — the app's only privilege is reading
+  # user-data from a real React Native app on the user's machine).
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  # Identity is the Apple Developer ID. Set in CI; default is "Developer ID
+  # Application" which is fine for ad-hoc / dev signing on a developer's box.
+  identity: ${env.CSC_NAME}
+  # Notarization. Set these env vars in CI for the workflow to notarize the
+  # .dmg; without them, electron-builder skips notarization and the .dmg is
+  # unsigned (Gatekeeper will warn on first launch).
+  notarize: true
+  # The notarize service uses notarytool under the hood; set
+  # APPLE_ID + APPLE_APP_SPECIFIC_PASSWORD + APPLE_TEAM_ID in CI.
+
+# Windows + Linux are commented out until they become committed targets.
+# win:
+#   target:
+#     - target: nsis
+#       arch: [x64]
+#   artifactName: ${productName}-${version}-${arch}.${ext}
+# linux:
+#   target:
+#     - target: AppImage
+#       arch: [x64]
+#   artifactName: ${productName}-${version}-${arch}.${ext}
+#   category: Development
+
+# Auto-update is wired but **not** auto-publishing. Doc 16 — "surface, not
+# force." A real auto-update feed ships in a follow-on (gated on first
+# design-partner validation, OQ-2). For v1, GitHub Releases is the
+# distribution surface; users download manually.
+# publish:
+#   provider: github
+#   releaseType: release

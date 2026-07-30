@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Icarus macOS entitlements (E-21, release workflow).
+  Minimal — the app's only privilege is reading user-data from a real React Native
+  app on the user's machine. We do not request camera, microphone, address book,
+  location, bluetooth, or any other sensitive entitlement. Sandbox is off because
+  Electron apps can't be sandboxed AND spawn child processes (the ProcessManager
+  spawns Metro, simctl, etc.).
+-->
+<plist version="1.0">
+<dict>
+  <!-- Required for a hardened-runtime app: allow JIT (JS execution). -->
+  <key>com.apple.security.cs.allow-jit</key>
+  <true/>
+  <!-- Required for a hardened-runtime app: allow unsigned executable memory (V8). -->
+  <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+  <true/>
+  <!-- Allow the app to spawn child processes (Metro, simctl, adb, etc.). -->
+  <key>com.apple.security.cs.allow-dyld-environment-variables</key>
+  <true/>
+</dict>
+</plist>
