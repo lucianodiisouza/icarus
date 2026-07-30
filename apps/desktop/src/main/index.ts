@@ -26,6 +26,10 @@ import {
   metroStartInputSchema,
   metroStopInputSchema,
   SUBSCRIPTIONS,
+  bridgeNavStartInputSchema,
+  bridgeNavStopInputSchema,
+  bridgePerfHotspotsStartInputSchema,
+  bridgePerfHotspotsStopInputSchema,
   type DevicesLaunchActivityOutput,
   type DevicesLaunchOutput,
   type DevicesListOutput,
@@ -56,6 +60,7 @@ import {
 import { createStorageController, registerStorageChannels } from './storage-controller.js';
 import { createPerfController, registerPerfChannels } from './perf-controller.js';
 import { createNavController, registerNavChannels } from './nav-controller.js';
+import { BridgeController } from './bridge-controller.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -211,15 +216,37 @@ const perf = createPerfController();
 // M3 navigation inspector (E-20): reads the user-installed in-app bridge
 // (`globalThis.__ICARUS_NAV_STATE__`). One-time click — no live push in v1.
 const nav = createNavController();
+// OQ-22 live in-app bridge: the live-push upgrade of E-19/E-20. One `BridgeController`
+// owns both pollers (nav + perf hot-spots); deltas push to the focused window on
+// `EVENTS.BRIDGE_DELTA` / `EVENTS.BRIDGE_ERROR`. The controller's `getCdp` reads the
+// module-scoped `currentCdpSend` (set on every CDP status change below) so a
+// connect/disconnect swap is picked up without restarting the controller.
+let currentCdpSend: import('@icarus/core').CdpSendLike | null = null;
+const bridge = new BridgeController({
+  getCdp: () => currentCdpSend,
+  // 750ms tick — fast enough to feel live, cheap enough that two pollers
+  // are 3 CDP round-trips/sec total. The poller skips while in flight.
+  intervalMs: 750,
+  evaluateTimeoutMs: 1500,
+});
+// Forward deltas + errors to the focused window.
+bridge.onDelta((delta) => {
+  const win = BrowserWindow.getAllWindows()[0];
+  if (win && !win.isDestroyed()) win.webContents.send(EVENTS.BRIDGE_DELTA, delta);
+});
+bridge.onError((err) => {
+  const win = BrowserWindow.getAllWindows()[0];
+  if (win && !win.isDestroyed()) win.webContents.send(EVENTS.BRIDGE_ERROR, err);
+});
+// Stop the live pollers on app exit so a `setInterval` doesn't outlive the process.
+app.on('will-quit', () => bridge.dispose());
+
 const cdp = createCdpController({
   unified,
   captureNetworkEvent: (event) => {
     captureNetworkEvent(event);
     feedNetworkInspector(event);
   },
-  // E-16: the inspector's opt-in body fetcher (Network.getRequestPostData / getResponseBody)
-  // needs the live CDP `send` — forward it on every status change. The session's `send`
-  // has the same shape as `CdpSendLike.send`; the cast is the single point of adaptation.
   onCdpSendChange: (send) => {
     const adapted: import('@icarus/core').CdpSendLike | null = send
       ? { send: send as unknown as import('@icarus/core').CdpSendLike['send'] }
@@ -229,6 +256,7 @@ const cdp = createCdpController({
     storage.setCdpSend(adapted);
     perf.setCdpSend(adapted);
     nav.setCdpSend(adapted);
+    currentCdpSend = adapted;
   },
 });
 registerCdpChannels(router, cdp, () => autoAttach.markUserDisconnected());
@@ -263,6 +291,28 @@ registerNavChannels({
   router,
   controller: nav,
 });
+
+// Register the OQ-22 live in-app bridge channels (four: nav start/stop, perf start/stop).
+router.register(CHANNELS.BRIDGE_NAV_START, bridgeNavStartInputSchema, async (): Promise<void> => {
+  bridge.startNav();
+});
+router.register(CHANNELS.BRIDGE_NAV_STOP, bridgeNavStopInputSchema, async (): Promise<void> => {
+  bridge.stopNav();
+});
+router.register(
+  CHANNELS.BRIDGE_PERF_HOTSPOTS_START,
+  bridgePerfHotspotsStartInputSchema,
+  async (): Promise<void> => {
+    bridge.startPerfHotspots();
+  },
+);
+router.register(
+  CHANNELS.BRIDGE_PERF_HOTSPOTS_STOP,
+  bridgePerfHotspotsStopInputSchema,
+  async (): Promise<void> => {
+    bridge.stopPerfHotspots();
+  },
+);
 
 router.register(
   CHANNELS.METRO_START,

@@ -78,7 +78,12 @@ export default tseslint.config(
   {
     // Test files may use dev-only globals.
     files: ['**/*.test.ts'],
-    rules: {},
+    rules: {
+      '@typescript-eslint/no-unused-vars': [
+        'error',
+        { argsIgnorePattern: '^_', varsIgnorePattern: '^_' },
+      ],
+    },
   },
   {
     // Plain-JS test fixtures run under Node; declare the Node globals they use so

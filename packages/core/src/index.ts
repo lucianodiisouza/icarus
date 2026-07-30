@@ -89,6 +89,15 @@ export { walkNavState, previewParams, NAV_PROBE } from './protocol/cdp/nav-probe
 export type { NavStateSnapshot, NavRoute, NavProbe } from './protocol/cdp/nav-probe.js';
 export { takeNavSnapshot } from './protocol/cdp/nav-snapshot.js';
 export type { NavSnapshot } from './protocol/cdp/nav-snapshot.js';
+// In-app bridge poller (OQ-22): the live-push half of the M3 perf/nav story.
+// Polls a user-installed globalThis expression on an interval, JSON-diffs the
+// result against the previous value, and emits a delta when it changes.
+export { BridgePoller } from './protocol/bridge/bridge-poller.js';
+export type {
+  BridgePollerDeps,
+  BridgePollerError,
+  BridgePollerScheduler,
+} from './protocol/bridge/bridge-poller.js';
 // M3 component tree inspector (E-17): Runtime.evaluate wrapper + fiber tree walker.
 export { evaluateOnTarget } from './protocol/cdp/eval.js';
 export type { EvaluateOptions, EvaluateResult } from './protocol/cdp/eval.js';

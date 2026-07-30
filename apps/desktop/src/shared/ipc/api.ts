@@ -6,6 +6,8 @@ import type {
   CdpNetworkEventOut,
   CdpStatusEvent,
   DoctorCheckOutput,
+  BridgeDelta,
+  BridgeErrorEvent,
   DevicesLaunchActivityOutput,
   DevicesLaunchOutput,
   MetroStartInput,
@@ -216,6 +218,34 @@ export interface IcarusApi {
    * into their app.
    */
   navSnapshot(): Promise<NavSnapshot>;
+
+  // --- OQ-22 live in-app bridge (the live-push upgrade of E-19/E-20) ---
+  /**
+   * Start the nav live-push poller. While running, every change to the
+   * `globalThis.__ICARUS_NAV_STATE__` value the user's app publishes is
+   * pushed as a `BridgeDelta` via `onBridgeDelta` — no per-render polling.
+   * Idempotent. The user installs a one-liner in their app to publish the
+   * state; this method is opt-in (the user clicks a button).
+   */
+  bridgeNavStart(): Promise<void>;
+  /** Stop the nav live-push poller. Idempotent. */
+  bridgeNavStop(): Promise<void>;
+  /**
+   * Start the perf-hotspots live-push poller. The user publishes
+   * `globalThis.__ICARUS_PERF_HOTSPOTS__ = [...]`; deltas arrive as
+   * `BridgeDelta` events on `onBridgeDelta`.
+   */
+  bridgePerfHotspotsStart(): Promise<void>;
+  /** Stop the perf-hotspots live-push poller. Idempotent. */
+  bridgePerfHotspotsStop(): Promise<void>;
+  /**
+   * Subscribe to live in-app bridge deltas (one channel for nav + perf).
+   * Returns an unsubscribe. Errors arrive on `onBridgeError` so the UI can
+   * show a single "live push stopped — click to restart" hint.
+   */
+  onBridgeDelta(handler: (delta: BridgeDelta) => void): Unsubscribe;
+  /** Subscribe to live in-app bridge errors. */
+  onBridgeError(handler: (error: BridgeErrorEvent) => void): Unsubscribe;
 }
 
 declare global {

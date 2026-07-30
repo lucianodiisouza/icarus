@@ -113,6 +113,15 @@ export const CHANNELS = {
    * `kind: 'no_bridge'` so the UI can show the copy-paste snippet.
    */
   NAV_SNAPSHOT: 'command:nav.snapshot',
+  // --- OQ-22 live in-app bridge (the live-push upgrade of E-19/E-20) ---
+  /** Command: start the nav live-push poller. Deltas arrive on `EVENTS.BRIDGE_DELTA`. */
+  BRIDGE_NAV_START: 'command:bridge.nav.start',
+  /** Command: stop the nav live-push poller. */
+  BRIDGE_NAV_STOP: 'command:bridge.nav.stop',
+  /** Command: start the perf-hotspots live-push poller. Deltas arrive on `EVENTS.BRIDGE_DELTA`. */
+  BRIDGE_PERF_HOTSPOTS_START: 'command:bridge.perfHotspots.start',
+  /** Command: stop the perf-hotspots live-push poller. */
+  BRIDGE_PERF_HOTSPOTS_STOP: 'command:bridge.perfHotspots.stop',
 } as const;
 
 export type ChannelName = (typeof CHANNELS)[keyof typeof CHANNELS];
@@ -168,6 +177,10 @@ export const EVENTS = {
   AI_ERROR: 'event:ai.error',
   /** A network record was added or updated (E-16, M3 network inspector). */
   NETWORK_RECORD: 'event:network.record',
+  /** A live in-app bridge delta (OQ-22, live-push for nav + perf). */
+  BRIDGE_DELTA: 'event:bridge.delta',
+  /** A live in-app bridge error (so the UI can show "live push stopped" feedback). */
+  BRIDGE_ERROR: 'event:bridge.error',
 } as const;
 
 export type CdpConnectionStatus =
@@ -178,6 +191,27 @@ export type CdpNetworkSupport = 'available' | 'unavailable';
 
 export type CdpLogEvent = CdpConsoleEntry;
 export type CdpNetworkEventOut = CdpNetworkEvent;
+
+// --- OQ-22 live in-app bridge (the live-push upgrade of E-19/E-20) ---
+/** A live delta from one of the bridge pollers. */
+export type BridgeDelta =
+  | { readonly kind: 'nav'; readonly state: unknown }
+  | { readonly kind: 'perf_hotspots'; readonly hotspots: readonly unknown[] };
+/** A typed failure from a bridge poller (so the UI can show "live push stopped"). */
+export type BridgeErrorEvent =
+  | { readonly kind: 'nav'; readonly error: BridgeErrorKind }
+  | { readonly kind: 'perf_hotspots'; readonly error: BridgeErrorKind };
+export type BridgeErrorKind =
+  | { readonly kind: 'not_connected' }
+  | { readonly kind: 'no_bridge' }
+  | { readonly kind: 'timeout' }
+  | { readonly kind: 'cdp_error'; readonly message: string }
+  | { readonly kind: 'remote_exception'; readonly name: string; readonly message: string }
+  | { readonly kind: 'invalid_response'; readonly reason: string };
+export const bridgeNavStartInputSchema = z.void();
+export const bridgeNavStopInputSchema = z.void();
+export const bridgePerfHotspotsStartInputSchema = z.void();
+export const bridgePerfHotspotsStopInputSchema = z.void();
 export interface CdpStatusEvent {
   readonly status: CdpConnectionStatus;
   readonly detail?: string;

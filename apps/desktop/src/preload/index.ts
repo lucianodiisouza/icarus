@@ -29,6 +29,8 @@ import type {
   StorageSnapshot,
   PerfSnapshot,
   NavSnapshot,
+  BridgeDelta,
+  BridgeErrorEvent,
 } from '../shared/ipc/contracts.js';
 import type { IcarusApi, Unsubscribe } from '../shared/ipc/api.js';
 
@@ -112,6 +114,17 @@ const api: IcarusApi = {
   // M3 navigation inspector (E-20): reads from the user-installed in-app bridge.
   // Pull-only on click.
   navSnapshot: () => ipcRenderer.invoke(CHANNELS.NAV_SNAPSHOT) as Promise<NavSnapshot>,
+  // OQ-22 live in-app bridge: the live-push upgrade of E-19/E-20. The poller
+  // runs in Main and pushes changes via EVENTS.BRIDGE_DELTA / EVENTS.BRIDGE_ERROR.
+  bridgeNavStart: () => ipcRenderer.invoke(CHANNELS.BRIDGE_NAV_START) as Promise<void>,
+  bridgeNavStop: () => ipcRenderer.invoke(CHANNELS.BRIDGE_NAV_STOP) as Promise<void>,
+  bridgePerfHotspotsStart: () =>
+    ipcRenderer.invoke(CHANNELS.BRIDGE_PERF_HOTSPOTS_START) as Promise<void>,
+  bridgePerfHotspotsStop: () =>
+    ipcRenderer.invoke(CHANNELS.BRIDGE_PERF_HOTSPOTS_STOP) as Promise<void>,
+  onBridgeDelta: (handler: (delta: BridgeDelta) => void) => subscribe(EVENTS.BRIDGE_DELTA, handler),
+  onBridgeError: (handler: (error: BridgeErrorEvent) => void) =>
+    subscribe(EVENTS.BRIDGE_ERROR, handler),
 };
 
 contextBridge.exposeInMainWorld('icarus', api);

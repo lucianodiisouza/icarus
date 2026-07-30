@@ -86,6 +86,8 @@ export function App(): ReactElement {
       <PerfSection />
       <hr style={{ margin: '28px 0', border: 0, borderTop: '1px solid #eaeef2' }} />
       <NavSection />
+      <hr style={{ margin: '28px 0', border: 0, borderTop: '1px solid #eaeef2' }} />
+      <LiveBridgeSection />
     </main>
   );
 }
@@ -2626,3 +2628,191 @@ function previewNavParams(
 }
 
 const btnStyle = { padding: '8px 16px', fontSize: 14, cursor: 'pointer' } as const;
+
+// ===========================================================================
+// OQ-22 Live in-app bridge (live-push upgrade of E-19/E-20). The user installs
+// a one-liner in their app to publish `globalThis.__ICARUS_NAV_STATE__` /
+// `__ICARUS_PERF_HOTSPOTS__`; this section lets them start a 750ms-tick poller
+// that streams the latest value as it changes. The pull-only read-only sections
+// above still work as the per-click snapshot for users who don't want to opt
+// in to a poller.
+// ===========================================================================
+
+type LiveKind = 'nav' | 'perf_hotspots';
+type LiveError = { readonly kind: LiveKind; readonly error: string };
+
+function LiveBridgeSection(): ReactElement {
+  const [navLive, setNavLive] = useState(false);
+  const [perfLive, setPerfLive] = useState(false);
+  const [navDeltas, setNavDeltas] = useState<number>(0);
+  const [perfDeltas, setPerfDeltas] = useState<number>(0);
+  const [lastNav, setLastNav] = useState<unknown>(null);
+  const [lastHotspotCount, setLastHotspotCount] = useState<number>(0);
+  const [lastError, setLastError] = useState<LiveError | null>(null);
+
+  // Subscribe to deltas + errors once; route to the right counter based on `kind`.
+  useEffect(() => {
+    const offD = window.icarus.onBridgeDelta((d) => {
+      if (d.kind === 'nav') {
+        setNavDeltas((n) => n + 1);
+        setLastNav(d.state);
+      } else {
+        setPerfDeltas((n) => n + 1);
+        setLastHotspotCount(d.hotspots.length);
+      }
+    });
+    const offE = window.icarus.onBridgeError((e) => {
+      // First letter capitalized: not_connected → "Not connected", no_bridge → "No bridge".
+      const k = e.error.kind;
+      const reason =
+        k === 'not_connected'
+          ? 'Not connected'
+          : k === 'no_bridge'
+            ? 'No bridge — publish the globalThis key in your app'
+            : k === 'timeout'
+              ? 'Eval timeout'
+              : k === 'cdp_error'
+                ? `CDP error: ${e.error.message}`
+                : k === 'remote_exception'
+                  ? `Remote: ${e.error.name}: ${e.error.message}`
+                  : k === 'invalid_response'
+                    ? `Invalid response: ${e.error.reason}`
+                    : 'Unknown error';
+      setLastError({ kind: e.kind, error: reason });
+    });
+    return () => {
+      offD();
+      offE();
+    };
+  }, []);
+
+  const startNav = useCallback(async () => {
+    setLastError(null);
+    try {
+      await window.icarus.bridgeNavStart();
+      setNavLive(true);
+    } catch (e) {
+      setLastError({ kind: 'nav', error: e instanceof Error ? e.message : String(e) });
+    }
+  }, []);
+  const stopNav = useCallback(async () => {
+    try {
+      await window.icarus.bridgeNavStop();
+    } finally {
+      setNavLive(false);
+    }
+  }, []);
+  const startPerf = useCallback(async () => {
+    setLastError(null);
+    try {
+      await window.icarus.bridgePerfHotspotsStart();
+      setPerfLive(true);
+    } catch (e) {
+      setLastError({ kind: 'perf_hotspots', error: e instanceof Error ? e.message : String(e) });
+    }
+  }, []);
+  const stopPerf = useCallback(async () => {
+    try {
+      await window.icarus.bridgePerfHotspotsStop();
+    } finally {
+      setPerfLive(false);
+    }
+  }, []);
+
+  return (
+    <section>
+      <h2 style={{ fontSize: 16 }}>Live in-app bridge (OQ-22)</h2>
+      <p style={{ color: '#57606a', marginTop: 0, fontSize: 13 }}>
+        Live-push upgrade of the read-only nav and perf-hotspots inspectors. Install a one-liner in
+        your app to publish the state (see the copy-paste snippet in the nav / perf sections), then
+        click <strong>Start live</strong> to receive a stream of deltas every 750ms — no per-render
+        polling.
+      </p>
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: '1fr 1fr',
+          gap: 12,
+          fontSize: 13,
+        }}
+      >
+        <div
+          style={{
+            border: '1px solid #eaeef2',
+            borderRadius: 6,
+            padding: 12,
+          }}
+        >
+          <div style={{ fontWeight: 600 }}>Nav state</div>
+          <div style={{ color: '#57606a', marginTop: 4 }}>
+            Deltas: <strong style={{ color: '#0a0' }}>{navDeltas}</strong> · last:{' '}
+            <code style={{ fontSize: 12 }}>{previewNavForBridge(lastNav)}</code>
+          </div>
+          <div style={{ marginTop: 8, display: 'flex', gap: 6 }}>
+            <button
+              type="button"
+              onClick={() => void startNav()}
+              disabled={navLive}
+              style={btnStyle}
+            >
+              {navLive ? 'Streaming…' : 'Start live'}
+            </button>
+            <button
+              type="button"
+              onClick={() => void stopNav()}
+              disabled={!navLive}
+              style={btnStyle}
+            >
+              Stop
+            </button>
+          </div>
+        </div>
+        <div
+          style={{
+            border: '1px solid #eaeef2',
+            borderRadius: 6,
+            padding: 12,
+          }}
+        >
+          <div style={{ fontWeight: 600 }}>Perf hot-spots</div>
+          <div style={{ color: '#57606a', marginTop: 4 }}>
+            Deltas: <strong style={{ color: '#0a0' }}>{perfDeltas}</strong> · last count:{' '}
+            <strong>{lastHotspotCount}</strong>
+          </div>
+          <div style={{ marginTop: 8, display: 'flex', gap: 6 }}>
+            <button
+              type="button"
+              onClick={() => void startPerf()}
+              disabled={perfLive}
+              style={btnStyle}
+            >
+              {perfLive ? 'Streaming…' : 'Start live'}
+            </button>
+            <button
+              type="button"
+              onClick={() => void stopPerf()}
+              disabled={!perfLive}
+              style={btnStyle}
+            >
+              Stop
+            </button>
+          </div>
+        </div>
+      </div>
+      {lastError !== null && (
+        <p style={{ color: STATUS_COLOR.error, fontSize: 12, marginTop: 8 }}>
+          [{lastError.kind}] {lastError.error}
+        </p>
+      )}
+    </section>
+  );
+}
+
+function previewNavForBridge(state: unknown): string {
+  if (state === null || state === undefined) return '—';
+  try {
+    return JSON.stringify(state).slice(0, 80);
+  } catch {
+    return String(state).slice(0, 80);
+  }
+}
